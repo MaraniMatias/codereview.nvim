@@ -1,0 +1,15 @@
+#!/bin/bash
+# cowork2md - git difftool wrapper for cowork2md.nvim
+#
+# Configure in ~/.gitconfig:
+#   [difftool "cowork2md"]
+#       cmd = /path/to/cowork2md/bin/cowork2md "$LOCAL" "$REMOTE"
+#   [difftool]
+#       prompt = false
+#
+# Usage:
+#   git difftool --dir-diff -t cowork2md
+#   git difftool --dir-diff --cached -t cowork2md
+#   git difftool --dir-diff -t cowork2md main..feature-branch
+
+exec nvim -c "lua require('cowork2md').difftool('$1', '$2')"
