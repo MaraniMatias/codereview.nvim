@@ -1,7 +1,7 @@
 local M = {}
-local state = require("cowork2md.state")
-local store = require("cowork2md.notes.store")
-local config = require("cowork2md.config")
+local state = require("codereview.state")
+local store = require("codereview.notes.store")
+local config = require("codereview.config")
 
 -- Status icons
 local STATUS_ICONS = {
@@ -26,7 +26,7 @@ function M.render()
   line_actions = {}
 
   -- Header
-  table.insert(lines, " cowork2md")
+  table.insert(lines, " codereview")
   table.insert(lines, " ─────────────────────────")
   line_actions[1] = nil
   line_actions[2] = nil
@@ -68,7 +68,7 @@ function M.render()
 end
 
 function M._apply_highlights(buf, lines)
-  local ns = vim.api.nvim_create_namespace("cowork2md_explorer")
+  local ns = vim.api.nvim_create_namespace("codereview_explorer")
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 
   for lnum, _ in ipairs(lines) do
@@ -137,16 +137,16 @@ function M.setup_keymaps(buf)
     if not action then return end
     if action.type == "file" then
       M.select_file(action.idx)
-      require("cowork2md.ui.diff_view").show_file(action.idx)
-      require("cowork2md.ui.layout").focus_diff()
+      require("codereview.ui.diff_view").show_file(action.idx)
+      require("codereview.ui.layout").focus_diff()
     elseif action.type == "note" then
       local s = state.get()
       for fi, f in ipairs(s.files) do
         if f.path == action.filepath then
           M.select_file(fi)
-          require("cowork2md.ui.diff_view").show_file(fi)
-          require("cowork2md.ui.diff_view").jump_to_line(action.line)
-          require("cowork2md.ui.layout").focus_diff()
+          require("codereview.ui.diff_view").show_file(fi)
+          require("codereview.ui.diff_view").jump_to_line(action.line)
+          require("codereview.ui.layout").focus_diff()
           break
         end
       end
@@ -174,7 +174,7 @@ function M.setup_keymaps(buf)
     local s = state.get()
     if s.current_file_idx < #s.files then
       M.select_file(s.current_file_idx + 1)
-      require("cowork2md.ui.diff_view").show_file(s.current_file_idx)
+      require("codereview.ui.diff_view").show_file(s.current_file_idx)
     end
   end, opts)
 
@@ -182,24 +182,33 @@ function M.setup_keymaps(buf)
     local s = state.get()
     if s.current_file_idx > 1 then
       M.select_file(s.current_file_idx - 1)
-      require("cowork2md.ui.diff_view").show_file(s.current_file_idx)
+      require("codereview.ui.diff_view").show_file(s.current_file_idx)
     end
   end, opts)
 
   -- Refresh
   vim.keymap.set("n", km.refresh, function()
-    require("cowork2md").refresh()
+    require("codereview").refresh()
   end, opts)
 
   -- Quit
   vim.keymap.set("n", km.quit, function()
-    require("cowork2md.ui.layout").close()
+    require("codereview.ui.layout").safe_close(false)
+  end, opts)
+
+  -- Tab: cycle focus to diff panel
+  vim.keymap.set("n", "<Tab>", function()
+    require("codereview.ui.layout").focus_diff()
   end, opts)
 
   -- Save
   vim.keymap.set("n", km.save, function()
-    require("cowork2md.review.exporter").save_with_prompt()
+    require("codereview.review.exporter").save_with_prompt()
   end, opts)
+
+  local layout = require("codereview.ui.layout")
+  layout.setup_quit_handlers(buf)
+  layout.setup_write_handlers(buf)
 end
 
 return M

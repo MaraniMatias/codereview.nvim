@@ -14,7 +14,7 @@ function M.open_notes_picker()
   local action_state = require("telescope.actions.state")
   local previewers = require("telescope.previewers")
 
-  local store = require("cowork2md.notes.store")
+  local store = require("codereview.notes.store")
   local all_notes = store.get_all()
 
   if #all_notes == 0 then
@@ -34,7 +34,7 @@ function M.open_notes_picker()
   end
 
   pickers.new({}, {
-    prompt_title = "cowork2md Notes",
+    prompt_title = "codereview Notes",
     finder = finders.new_table({
       results = entries,
       entry_maker = function(entry)
@@ -76,11 +76,11 @@ function M.open_notes_picker()
         if not selection then return end
         local note = selection.value.note
 
-        local st = require("cowork2md.state")
+        local st = require("codereview.state")
         local s = st.get()
-        local explorer = require("cowork2md.ui.explorer")
-        local diff_view = require("cowork2md.ui.diff_view")
-        local layout = require("cowork2md.ui.layout")
+        local explorer = require("codereview.ui.explorer")
+        local diff_view = require("codereview.ui.diff_view")
+        local layout = require("codereview.ui.layout")
 
         for fi, f in ipairs(s.files) do
           if f.path == note.filepath then

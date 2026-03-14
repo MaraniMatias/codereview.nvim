@@ -1,6 +1,6 @@
 local M = {}
-local config = require("cowork2md.config")
-local state = require("cowork2md.state")
+local config = require("codereview.config")
+local state = require("codereview.state")
 
 -- Create the two-panel layout: explorer (left) + diff (right)
 function M.create()
@@ -16,12 +16,12 @@ function M.create()
 
   -- Create explorer buffer (left panel)
   local explorer_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(explorer_buf, "cowork2md://explorer")
-  vim.api.nvim_set_option_value("buftype", "nofile", { buf = explorer_buf })
+  vim.api.nvim_buf_set_name(explorer_buf, "codereview://explorer")
+  vim.api.nvim_set_option_value("buftype", "acwrite", { buf = explorer_buf })
   vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = explorer_buf })
   vim.api.nvim_set_option_value("swapfile", false, { buf = explorer_buf })
   vim.api.nvim_set_option_value("modifiable", false, { buf = explorer_buf })
-  vim.api.nvim_set_option_value("filetype", "cowork2md-explorer", { buf = explorer_buf })
+  vim.api.nvim_set_option_value("filetype", "codereview-explorer", { buf = explorer_buf })
 
   -- Set current window to use explorer buffer
   local explorer_win = vim.api.nvim_get_current_win()
@@ -34,8 +34,8 @@ function M.create()
 
   -- Create diff buffer
   local diff_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(diff_buf, "cowork2md://diff")
-  vim.api.nvim_set_option_value("buftype", "nofile", { buf = diff_buf })
+  vim.api.nvim_buf_set_name(diff_buf, "codereview://diff")
+  vim.api.nvim_set_option_value("buftype", "acwrite", { buf = diff_buf })
   vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = diff_buf })
   vim.api.nvim_set_option_value("swapfile", false, { buf = diff_buf })
   vim.api.nvim_set_option_value("modifiable", false, { buf = diff_buf })
@@ -74,6 +74,41 @@ function M.close()
     vim.cmd("tabclose")
   end
   state.reset()
+end
+
+-- Close safely, warning if there are unsaved notes
+function M.safe_close(force)
+  local s = state.get()
+  if not force and s.notes_dirty then
+    vim.notify(
+      "E37: Review has unsaved notes. Use :q! to force or <C-s> to save.",
+      vim.log.levels.WARN
+    )
+    return
+  end
+  M.close()
+end
+
+-- Intercept :w for a buffer → save_with_prompt (shows pre-generated name)
+function M.setup_write_handlers(buf)
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = buf,
+    callback = function()
+      require("codereview.review.exporter").save_with_prompt()
+      vim.api.nvim_set_option_value("modified", false, { buf = buf })
+    end,
+  })
+end
+
+-- Intercept :q / :q! for a buffer so they close the whole plugin layout
+function M.setup_quit_handlers(buf)
+  vim.api.nvim_create_autocmd("QuitPre", {
+    buffer = buf,
+    callback = function()
+      vim.v.event.abort = true
+      M.safe_close(vim.v.cmdbang == 1)
+    end,
+  })
 end
 
 -- Check if layout is open

@@ -1,8 +1,8 @@
 local M = {}
 
-local config = require("cowork2md.config")
-local state = require("cowork2md.state")
-local git = require("cowork2md.git")
+local config = require("codereview.config")
+local state = require("codereview.state")
+local git = require("codereview.git")
 
 --- Setup the plugin with user configuration
 function M.setup(opts)
@@ -12,9 +12,9 @@ end
 --- Open code review from within Neovim
 --- ref: optional git diff ref (e.g. "HEAD", "main..feature", "--staged", "HEAD~3")
 function M.open(ref)
-  local layout = require("cowork2md.ui.layout")
+  local layout = require("codereview.ui.layout")
   if layout.is_open() then
-    vim.notify("cowork2md is already open", vim.log.levels.WARN)
+    vim.notify("codereview is already open", vim.log.levels.WARN)
     return
   end
 
@@ -49,8 +49,8 @@ function M.open(ref)
 
   local wins = layout.create()
 
-  local explorer = require("cowork2md.ui.explorer")
-  local diff_view = require("cowork2md.ui.diff_view")
+  local explorer = require("codereview.ui.explorer")
+  local diff_view = require("codereview.ui.diff_view")
   explorer.setup_keymaps(wins.explorer_buf)
   diff_view.setup_keymaps(wins.diff_buf)
 
@@ -63,7 +63,7 @@ function M.open(ref)
   layout.focus_explorer()
 
   vim.notify(
-    "cowork2md: " .. #files .. " changed file(s) | " .. s.diff_ref,
+    "codereview: " .. #files .. " changed file(s) | " .. s.diff_ref,
     vim.log.levels.INFO
   )
 end
@@ -71,7 +71,7 @@ end
 --- Open as git difftool
 --- Called from git difftool with LOCAL and REMOTE paths
 function M.difftool(local_path, remote_path)
-  local layout = require("cowork2md.ui.layout")
+  local layout = require("codereview.ui.layout")
 
   if vim.tbl_isempty(config.options) then
     config.setup({})
@@ -116,8 +116,8 @@ function M.difftool(local_path, remote_path)
 
   local wins = layout.create()
 
-  local explorer = require("cowork2md.ui.explorer")
-  local diff_view = require("cowork2md.ui.diff_view")
+  local explorer = require("codereview.ui.explorer")
+  local diff_view = require("codereview.ui.diff_view")
   explorer.setup_keymaps(wins.explorer_buf)
   diff_view.setup_keymaps(wins.diff_buf)
 
@@ -130,7 +130,7 @@ function M.difftool(local_path, remote_path)
   layout.focus_explorer()
 
   vim.notify(
-    "cowork2md difftool: " .. #s.files .. " file(s)",
+    "codereview difftool: " .. #s.files .. " file(s)",
     vim.log.levels.INFO
   )
 end
@@ -161,9 +161,9 @@ function M.refresh()
     end
   end
 
-  require("cowork2md.ui.explorer").render()
-  require("cowork2md.ui.diff_view").show_file(s.current_file_idx)
-  vim.notify("cowork2md: refreshed", vim.log.levels.INFO)
+  require("codereview.ui.explorer").render()
+  require("codereview.ui.diff_view").show_file(s.current_file_idx)
+  vim.notify("codereview: refreshed", vim.log.levels.INFO)
 end
 
 return M

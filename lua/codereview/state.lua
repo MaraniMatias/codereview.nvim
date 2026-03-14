@@ -12,6 +12,8 @@ local initial_state = {
   files = {},          -- list of FileEntry
   current_file_idx = 1,
   notes = {},          -- notes[filepath][line] = NoteEntry
+  notes_dirty = false, -- true if there are unsaved notes
+  notes_visible = true, -- true if virtual text is shown in diff
   windows = {          -- window IDs
     explorer = nil,
     diff = nil,
@@ -24,7 +26,7 @@ local initial_state = {
   tab = nil,
 }
 
-M.state = {}
+M.state = vim.deepcopy(initial_state)
 
 function M.init()
   M.state = vim.deepcopy(initial_state)

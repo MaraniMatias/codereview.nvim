@@ -1,4 +1,4 @@
-# cowork2md.nvim
+# CodeReview.nvim
 
 A Neovim plugin for Git diff-based code review. Navigate changed files, add inline notes on diffs, and export everything to a `review-YYYY-MM-DD.md`. Works as both `:CodeReview` inside Neovim and as `git difftool --dir-diff`.
 
@@ -9,7 +9,7 @@ The experience is familiar to nvim/neo-tree/lazygit users.
 ```
 +---------------------+---------------------------------------+
 |  ARCHIVOS           |  DIFF (unified)                       |
-|  ▶ [M] src/foo.js   |  @@ -10,4 +10,6 @@                   |
+|  ▶ [M] src/foo.js   |  @@ -10,4 +10,6 @@                    |
 |    ⊳ L42: revisar   |   context line                        |
 |    ⊳ L67: null chk  |  -old line                            |
 |  > [A] src/bar.js   |  +new line   📝 revisar               |
@@ -30,12 +30,12 @@ The experience is familiar to nvim/neo-tree/lazygit users.
 ```lua
 -- lazy.nvim
 {
-  "username/cowork2md.nvim",
+  "MaraniMatias/codereview.nvim",
   dependencies = {
     "nvim-telescope/telescope.nvim",  -- optional
   },
   config = function()
-    require("cowork2md").setup({})
+    require("codereview").setup({})
   end,
 }
 ```
@@ -43,7 +43,7 @@ The experience is familiar to nvim/neo-tree/lazygit users.
 ## Configuration
 
 ```lua
-require("cowork2md").setup({
+require("codereview").setup({
   diff_view = "unified",       -- "unified" (only mode currently)
   explorer_width = 30,         -- columns for the left panel
 
@@ -84,8 +84,8 @@ require("cowork2md").setup({
 Add to `~/.gitconfig`:
 
 ```ini
-[difftool "cowork2md"]
-    cmd = nvim -c "lua require('cowork2md').difftool('$LOCAL', '$REMOTE')"
+[difftool "codereview"]
+    cmd = nvim -c "lua require('codereview').difftool('$LOCAL', '$REMOTE')"
 [difftool]
     prompt = false
 ```
@@ -93,21 +93,21 @@ Add to `~/.gitconfig`:
 Or use the provided shell wrapper:
 
 ```ini
-[difftool "cowork2md"]
-    cmd = /path/to/cowork2md/bin/cowork2md "$LOCAL" "$REMOTE"
+[difftool "codereview"]
+    cmd = /path/to/codereview/bin/codereview "$LOCAL" "$REMOTE"
 ```
 
 Then use it:
 
 ```bash
 # Review all working tree changes
-git difftool --dir-diff -t cowork2md
+git difftool --dir-diff -t codereview
 
 # Review staged changes
-git difftool --dir-diff --cached -t cowork2md
+git difftool --dir-diff --cached -t codereview
 
 # Review between branches
-git difftool --dir-diff -t cowork2md main..feature-branch
+git difftool --dir-diff -t codereview main..feature-branch
 ```
 
 > **Why `--dir-diff`?** This is the only mode where the plugin receives ALL changed files at once, enabling the full file explorer. Without it, git calls the tool once per file with no multi-file panel.
@@ -116,45 +116,46 @@ git difftool --dir-diff -t cowork2md main..feature-branch
 
 ### Explorer Panel (left)
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate files and notes |
-| `Enter` / `l` | Open selected file in diff panel |
+| Key             | Action                           |
+| --------------- | -------------------------------- |
+| `j` / `k`       | Navigate files and notes         |
+| `Enter` / `l`   | Open selected file in diff panel |
 | `Enter` on note | Jump to that note's line in diff |
-| `<Tab>` | Toggle notes expand/collapse |
-| `]f` / `[f` | Next/prev file |
-| `R` | Refresh file list |
-| `q` | Close plugin |
-| `<C-s>` | Save review.md |
+| `<Tab>`         | Toggle notes expand/collapse     |
+| `]f` / `[f`     | Next/prev file                   |
+| `R`             | Refresh file list                |
+| `q`             | Close plugin                     |
+| `<C-s>`         | Save review.md                   |
 
 ### Diff Panel (right)
 
-| Key | Action |
-|-----|--------|
-| vim motions | Normal navigation (hjkl, gg, G, etc.) |
-| `i` (normal) | Add note on current line |
-| `I` (normal) | Edit existing note on current line |
+| Key          | Action                                        |
+| ------------ | --------------------------------------------- |
+| vim motions  | Normal navigation (hjkl, gg, G, etc.)         |
+| `i` (normal) | Add note on current line                      |
+| `I` (normal) | Edit existing note on current line            |
 | `V` then `i` | Add note with visual selection (code context) |
-| `]n` / `[n` | Next/prev note in current file |
-| `]f` / `[f` | Next/prev file |
-| `<C-s>` | Save review.md (with filename prompt) |
-| `<Space>n` | Telescope notes picker |
-| `q` | Close plugin |
+| `]n` / `[n`  | Next/prev note in current file                |
+| `]f` / `[f`  | Next/prev file                                |
+| `<C-s>`      | Save review.md (with filename prompt)         |
+| `<Space>n`   | Telescope notes picker                        |
+| `q`          | Close plugin                                  |
 
 ### Note Float Window
 
-| Key | Action |
-|-----|--------|
-| Insert mode | Write note text freely |
-| `<C-s>` | Confirm and save note |
-| `<Esc>` / `q` | Cancel (discard) |
+| Key           | Action                 |
+| ------------- | ---------------------- |
+| Insert mode   | Write note text freely |
+| `<C-s>`       | Confirm and save note  |
+| `<Esc>` / `q` | Cancel (discard)       |
 
 ## review.md Format
 
-```markdown
+````markdown
 # Code Review — 2026-03-14
 
 ## Summary
+
 _Write your summary here._
 
 ---
@@ -166,6 +167,7 @@ _Write your summary here._
 ```javascript
 const result = a + b;
 ```
+````
 
 > revisar este cálculo
 
@@ -186,6 +188,7 @@ function handleUser(user) {
 ---
 
 _Generated by cowork2md_
+
 ```
 
 ## Features
@@ -201,3 +204,4 @@ _Generated by cowork2md_
 - **`:CodeReview`**: open from any git repo with optional ref argument
 - **`git difftool --dir-diff`**: full multi-file review from the terminal
 - **File status badges**: `[M]` modified, `[A]` added, `[D]` deleted, `[R]` renamed
+```

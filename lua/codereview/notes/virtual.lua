@@ -1,9 +1,9 @@
 local M = {}
-local state = require("cowork2md.state")
-local store = require("cowork2md.notes.store")
+local state = require("codereview.state")
+local store = require("codereview.notes.store")
 
 -- Namespace for extmarks
-local ns_id = vim.api.nvim_create_namespace("cowork2md_notes")
+local ns_id = vim.api.nvim_create_namespace("codereview_notes")
 
 -- Set extmark for a note on a specific buffer line (0-indexed)
 function M.set_extmark(buf, lnum, note)
@@ -56,6 +56,18 @@ function M.render_notes(buf, filepath, line_map)
         break
       end
     end
+  end
+end
+
+-- Toggle virtual text visibility
+function M.toggle(buf, filepath, line_map)
+  local s = state.get()
+  if s.notes_visible then
+    M.clear_extmarks(buf)
+    s.notes_visible = false
+  else
+    M.render_notes(buf, filepath, line_map)
+    s.notes_visible = true
   end
 end
 

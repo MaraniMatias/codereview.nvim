@@ -1,5 +1,5 @@
 local M = {}
-local state = require("cowork2md.state")
+local state = require("codereview.state")
 
 -- NoteEntry structure:
 -- {
@@ -26,6 +26,7 @@ function M.set(filepath, line_start, line_end, code, text)
     text = text,
     extmark_id = nil,
   }
+  s.notes_dirty = true
   return s.notes[filepath][key]
 end
 
@@ -41,6 +42,7 @@ function M.delete(filepath, line)
   local s = state.get()
   if s.notes[filepath] then
     s.notes[filepath][line] = nil
+    s.notes_dirty = true
   end
 end
 

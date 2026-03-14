@@ -1,5 +1,5 @@
 local M = {}
-local store = require("cowork2md.notes.store")
+local store = require("codereview.notes.store")
 
 -- Currently open float context
 local float_ctx = nil
@@ -143,8 +143,8 @@ function M.confirm()
   end
 
   -- Refresh displays
-  require("cowork2md.ui.diff_view").refresh_notes()
-  require("cowork2md.ui.explorer").render()
+  require("codereview.ui.diff_view").refresh_notes()
+  require("codereview.ui.explorer").render()
 
   vim.notify("Note saved for L" .. ctx.line_start, vim.log.levels.INFO)
 end

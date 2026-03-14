@@ -1,9 +1,9 @@
 local M = {}
-local state = require("cowork2md.state")
-local config = require("cowork2md.config")
-local diff_parser = require("cowork2md.diff_parser")
-local virtual = require("cowork2md.notes.virtual")
-local git = require("cowork2md.git")
+local state = require("codereview.state")
+local config = require("codereview.config")
+local diff_parser = require("codereview.diff_parser")
+local virtual = require("codereview.notes.virtual")
+local git = require("codereview.git")
 
 -- Current file's display data
 local current_display = {
@@ -72,7 +72,7 @@ function M.show_file(idx)
   virtual.render_notes(buf, file.path, line_map)
 
   -- Set buffer name to show current file
-  pcall(vim.api.nvim_buf_set_name, buf, "cowork2md://" .. file.path)
+  pcall(vim.api.nvim_buf_set_name, buf, "codereview://" .. file.path)
 
   -- Move cursor to top
   if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
@@ -90,7 +90,7 @@ function M._get_diff_for_file(file)
 end
 
 function M._apply_diff_highlights(buf, line_types)
-  local ns = vim.api.nvim_create_namespace("cowork2md_diff")
+  local ns = vim.api.nvim_create_namespace("codereview_diff")
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 
   for lnum, ltype in ipairs(line_types) do
@@ -173,31 +173,20 @@ function M.setup_keymaps(buf)
   local km = cfg.keymaps
   local opts = { noremap = true, silent = true, nowait = true, buffer = buf }
 
-  -- Add note on current line
-  vim.keymap.set("n", km.add_note, function()
+  -- Add or edit note on current line (smart: pre-loads text if note exists)
+  vim.keymap.set("n", km.note, function()
     local new_lnum = M.get_current_lnum()
     if not new_lnum then return end
     local s = state.get()
     local file = s.files[s.current_file_idx]
     if not file then return end
+    local existing = require("codereview.notes.store").get(file.path, new_lnum)
     local code = M.get_code_context(new_lnum, new_lnum)
-    require("cowork2md.ui.note_float").open(file.path, new_lnum, new_lnum, code)
-  end, opts)
-
-  -- Edit note on current line
-  vim.keymap.set("n", km.edit_note, function()
-    local new_lnum = M.get_current_lnum()
-    if not new_lnum then return end
-    local s = state.get()
-    local file = s.files[s.current_file_idx]
-    if not file then return end
-    local existing = require("cowork2md.notes.store").get(file.path, new_lnum)
-    local code = M.get_code_context(new_lnum, new_lnum)
-    require("cowork2md.ui.note_float").open(file.path, new_lnum, new_lnum, code, existing and existing.text)
+    require("codereview.ui.note_float").open(file.path, new_lnum, new_lnum, code, existing and existing.text)
   end, opts)
 
   -- Add note from visual selection
-  vim.keymap.set("v", km.add_note, function()
+  vim.keymap.set("v", km.note, function()
     -- Get visual selection range
     local vstart = vim.fn.line("v")
     local vend = vim.fn.line(".")
@@ -214,7 +203,7 @@ function M.setup_keymaps(buf)
     if not file then return end
 
     local code = M.get_code_context(lnum_start, lnum_end)
-    require("cowork2md.ui.note_float").open(file.path, lnum_start, lnum_end, code)
+    require("codereview.ui.note_float").open(file.path, lnum_start, lnum_end, code)
     -- Exit visual mode
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
   end, opts)
@@ -228,8 +217,8 @@ function M.setup_keymaps(buf)
   end, opts)
 
   -- Next/prev file
-  local layout = require("cowork2md.ui.layout")
-  local explorer = require("cowork2md.ui.explorer")
+  local layout = require("codereview.ui.layout")
+  local explorer = require("codereview.ui.explorer")
   vim.keymap.set("n", km.next_file, function()
     local s = state.get()
     if s.current_file_idx < #s.files then
@@ -247,18 +236,34 @@ function M.setup_keymaps(buf)
 
   -- Save
   vim.keymap.set("n", km.save, function()
-    require("cowork2md.review.exporter").save_with_prompt()
+    require("codereview.review.exporter").save_with_prompt()
   end, opts)
 
   -- Notes picker
   vim.keymap.set("n", km.notes_picker, function()
-    require("cowork2md.telescope").open_notes_picker()
+    require("codereview.telescope").open_notes_picker()
+  end, opts)
+
+  -- Toggle virtual text visibility
+  vim.keymap.set("n", km.toggle_virtual_text, function()
+    local s = state.get()
+    local file = s.files[s.current_file_idx]
+    if not file then return end
+    virtual.toggle(s.buffers.diff, file.path, current_display.line_map)
+  end, opts)
+
+  -- Tab: cycle focus to explorer panel
+  vim.keymap.set("n", "<Tab>", function()
+    layout.focus_explorer()
   end, opts)
 
   -- Quit
   vim.keymap.set("n", km.quit, function()
-    layout.close()
+    layout.safe_close(false)
   end, opts)
+
+  layout.setup_quit_handlers(buf)
+  layout.setup_write_handlers(buf)
 end
 
 function M._jump_note(direction)
@@ -266,7 +271,7 @@ function M._jump_note(direction)
   local file = s.files[s.current_file_idx]
   if not file then return end
 
-  local notes = require("cowork2md.notes.store").get_for_file(file.path)
+  local notes = require("codereview.notes.store").get_for_file(file.path)
   if #notes == 0 then return end
 
   local current_lnum = M.get_current_lnum() or 0
