@@ -2,7 +2,9 @@ local M = {}
 
 local state = require("codereview.state")
 local diff_view = require("codereview.ui.diff_view")
+local diff_state = require("codereview.ui.diff_view.state")
 local layout = require("codereview.ui.layout")
+local note_float = require("codereview.ui.note_float")
 local explorer_state = require("codereview.ui.explorer.state")
 local view = require("codereview.ui.explorer.view")
 
@@ -75,13 +77,18 @@ function M.preview_action(action, opts)
     return
   end
 
+  local s = state.get()
+  local prev_file_idx = s.current_file_idx
+
   if action.type == "file" then
     M.select_file({
       idx = action.idx,
       preserve_cursor = opts.preserve_cursor,
       move_cursor = opts.move_cursor,
     })
-    diff_view.show_file(action.idx)
+    if action.idx ~= prev_file_idx or #diff_state.get().all_lines == 0 then
+      diff_view.show_file(action.idx)
+    end
   elseif action.type == "note" then
     local file_idx = find_file_idx(action.filepath)
     if not file_idx then
@@ -92,7 +99,9 @@ function M.preview_action(action, opts)
       preserve_cursor = opts.preserve_cursor,
       move_cursor = opts.move_cursor,
     })
-    diff_view.show_file(file_idx)
+    if file_idx ~= prev_file_idx or #diff_state.get().all_lines == 0 then
+      diff_view.show_file(file_idx)
+    end
     diff_view.jump_to_line(action.line)
   else
     return
@@ -165,6 +174,10 @@ function M.refresh()
 end
 
 function M.quit()
+  if note_float.is_open() then
+    note_float.close()
+    return
+  end
   layout.safe_close(false)
 end
 

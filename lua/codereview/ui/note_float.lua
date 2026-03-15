@@ -180,10 +180,24 @@ function M.confirm()
   end
 
   -- Refresh displays
+  -- Auto-expand file in explorer so the new note is immediately visible
+  local s = require("codereview.state").get()
+  for _, file in ipairs(s.files) do
+    if file.path == ctx.filepath then
+      file.expanded = true
+      break
+    end
+  end
+
   require("codereview.ui.diff_view").refresh_notes()
   require("codereview.ui.explorer").render()
 
   vim.notify("Note saved for L" .. ctx.line_start, vim.log.levels.INFO)
+end
+
+function M.is_open()
+  return float_ctx ~= nil and float_ctx.win ~= nil
+    and vim.api.nvim_win_is_valid(float_ctx.win)
 end
 
 -- Close without saving

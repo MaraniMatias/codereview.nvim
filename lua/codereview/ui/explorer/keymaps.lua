@@ -16,7 +16,9 @@ function M.setup(buf)
   vim.keymap.set("n", km.refresh, actions.refresh, opts)
   vim.keymap.set("n", km.quit, actions.quit, opts)
   vim.keymap.set("n", km.cycle_focus, actions.cycle_focus, opts)
-  vim.keymap.set("n", km.save, actions.save, opts)
+  if km.save then
+    vim.keymap.set("n", km.save, actions.save, opts)
+  end
 
   layout.setup_quit_handlers(buf)
   layout.setup_write_handlers(buf)

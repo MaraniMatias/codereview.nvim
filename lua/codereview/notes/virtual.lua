@@ -42,7 +42,7 @@ function M.set_extmark(buf, lnum, note, extmark_id)
   end
   -- Remove newlines from virtual text display
   text = text:gsub("\n", " ")
-  local virt_text = { { "  📝 " .. text, "Comment" } }
+  local virt_text = { { "  ~ " .. text, "Comment" } }
 
   local opts = {
     virt_text = virt_text,

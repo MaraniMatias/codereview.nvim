@@ -429,7 +429,7 @@ function M.safe_close(force)
   local s = state.get()
   if not force and s.notes_dirty then
     vim.notify(
-      "E37: Review has unsaved notes. Use :q! to force or <C-s> to save.",
+      "E37: Review has unsaved notes. Use :q! to force or :w to save.",
       vim.log.levels.WARN
     )
     return false
@@ -459,24 +459,23 @@ function M.setup_quit_handlers(buf)
     group = buffer_handlers_group,
     buffer = buf,
     callback = function()
-      if teardown_in_progress then
+      if teardown_in_progress then return end
+
+      local force = vim.v.cmdbang == 1
+      local current_win = vim.api.nvim_get_current_win()
+
+      if not force and state.get().notes_dirty then
+        vim.v.event.abort = true
+        blocked_close_session_id = active_session_id
+        M.safe_close(false)
+        if is_valid_window(current_win) then
+          pcall(vim.api.nvim_set_current_win, current_win)
+        end
         return
       end
 
-      local current_win = vim.api.nvim_get_current_win()
-      local should_restore_layout = vim.v.cmdbang ~= 1 and state.get().notes_dirty
-
-      if should_restore_layout then
-        blocked_close_session_id = active_session_id
-      end
-
       vim.v.event.abort = true
-      local closed = M.safe_close(vim.v.cmdbang == 1)
-
-      if closed then
-        blocked_close_session_id = nil
-      end
-
+      local closed = M.safe_close(force)
       if not closed and is_valid_window(current_win) then
         pcall(vim.api.nvim_set_current_win, current_win)
       end

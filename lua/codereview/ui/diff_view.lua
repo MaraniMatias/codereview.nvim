@@ -486,9 +486,11 @@ function M.setup_keymaps(buf)
     end
   end, opts)
 
-  vim.keymap.set("n", km.save, function()
-    require("codereview.review.exporter").save_with_prompt()
-  end, opts)
+  if km.save then
+    vim.keymap.set("n", km.save, function()
+      require("codereview.review.exporter").save_with_prompt()
+    end, opts)
+  end
 
   vim.keymap.set("n", km.notes_picker, function()
     require("codereview.telescope").open_notes_picker()
@@ -510,6 +512,11 @@ function M.setup_keymaps(buf)
   end, opts)
 
   vim.keymap.set("n", km.quit, function()
+    local note_float = require("codereview.ui.note_float")
+    if note_float.is_open() then
+      note_float.close()
+      return
+    end
     layout.safe_close(false)
   end, opts)
 
@@ -519,15 +526,15 @@ end
 
 function M._jump_note(direction)
   local s = state.get()
+  local store = require("codereview.notes.store")
   local file = s.files[s.current_file_idx]
   if not file then return end
 
-  local notes = require("codereview.notes.store").get_for_file(file.path)
-  if #notes == 0 then return end
-
+  local notes = store.get_for_file(file.path)
   local current_lnum = M.get_current_lnum() or 0
   local target_note = nil
 
+  -- Search in current file first
   if direction > 0 then
     for _, note in ipairs(notes) do
       if note.line_start > current_lnum then
@@ -535,7 +542,6 @@ function M._jump_note(direction)
         break
       end
     end
-    if not target_note then target_note = notes[1] end
   else
     for i = #notes, 1, -1 do
       if notes[i].line_start < current_lnum then
@@ -543,11 +549,43 @@ function M._jump_note(direction)
         break
       end
     end
-    if not target_note then target_note = notes[#notes] end
   end
 
   if target_note then
     M.jump_to_line(target_note.line_start)
+    return
+  end
+
+  -- No match in current file — search other files
+  local num_files = #s.files
+  if num_files <= 1 then
+    -- Only one file: wrap within it (original behavior)
+    if #notes > 0 then
+      local wrap_note = direction > 0 and notes[1] or notes[#notes]
+      M.jump_to_line(wrap_note.line_start)
+    end
+    return
+  end
+
+  local explorer = require("codereview.ui.explorer.actions")
+  for offset = 1, num_files - 1 do
+    local next_idx = ((s.current_file_idx - 1 + direction * offset) % num_files) + 1
+    local next_file = s.files[next_idx]
+    if next_file then
+      local next_notes = store.get_for_file(next_file.path)
+      if #next_notes > 0 then
+        local target = direction > 0 and next_notes[1] or next_notes[#next_notes]
+        explorer.preview_action({ type = "file", idx = next_idx }, { move_cursor = true })
+        M.jump_to_line(target.line_start)
+        return
+      end
+    end
+  end
+
+  -- No notes in any other file: wrap within current file
+  if #notes > 0 then
+    local wrap_note = direction > 0 and notes[1] or notes[#notes]
+    M.jump_to_line(wrap_note.line_start)
   end
 end
 
