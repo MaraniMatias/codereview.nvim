@@ -1,38 +1,36 @@
 # CodeReview.nvim
 
-A Neovim plugin for Git diff-based code review. Navigate changed files, add inline notes on diffs, and export everything to a `review-YYYY-MM-DD.md`. Works as both `:CodeReview` inside Neovim and as `git difftool --dir-diff`.
+A Neovim plugin for Git diff-based code review. Navigate changed files, add inline notes on diffs, and export everything to a `review-YYYY-MM-DD.md`. It works both as `:CodeReview` inside Neovim and as `git difftool --dir-diff`.
 
-The experience is familiar to nvim/neo-tree/lazygit users.
+The current implementation is centered on a two-panel unified diff workflow. `split` view is planned, but not implemented yet.
 
 ## Layout
 
-```
+```text
 +---------------------+---------------------------------------+
-|  ARCHIVOS           |  DIFF (unified)                       |
-|  ▶ [M] src/foo.js   |  @@ -10,4 +10,6 @@                    |
-|    ⊳ L42: revisar   |   context line                        |
-|    ⊳ L67: null chk  |  -old line                            |
-|  > [A] src/bar.js   |  +new line   📝 revisar               |
-|  > [D] src/baz.js   |                                       |
+|  FILES              |  DIFF (unified)                       |
+|  > [M] src/foo.js   |  @@ -10,4 +10,6 @@                   |
+|    > L42: revisit   |   context line                        |
+|  > [A] src/bar.js   |  -old line                            |
+|  > [D] src/baz.js   |  +new line  📝 revisit                |
 +---------------------+---------------------------------------+
 ```
 
-- **Left panel** (~30 cols): file explorer with status badges and note sub-items
-- **Right panel**: diff view with syntax highlighting + virtual text for notes
+- Left panel: file explorer with badges, note counts, and note entries
+- Right panel: unified diff view with highlights and virtual text notes
 
 ## Requirements
 
 - Neovim >= 0.9
-- `telescope.nvim` (optional, for notes picker)
+- `telescope.nvim` optional, for the notes picker
 
 ## Installation
 
 ```lua
--- lazy.nvim
 {
   "MaraniMatias/codereview.nvim",
   dependencies = {
-    "nvim-telescope/telescope.nvim",  -- optional
+    "nvim-telescope/telescope.nvim",
   },
   config = function()
     require("codereview").setup({})
@@ -44,44 +42,50 @@ The experience is familiar to nvim/neo-tree/lazygit users.
 
 ```lua
 require("codereview").setup({
-  diff_view = "unified",       -- "unified" (only mode currently)
-  explorer_width = 30,         -- columns for the left panel
+  diff_view = "unified", -- "split" is planned, not implemented yet
+  explorer_width = 30,
 
   keymaps = {
-    add_note    = "i",         -- add note on current line (normal mode)
-    edit_note   = "I",         -- edit existing note on current line
-    next_note   = "]n",        -- jump to next note
-    prev_note   = "[n",        -- jump to prev note
-    next_file   = "]f",        -- next file
-    prev_file   = "[f",        -- prev file
-    save        = "<C-s>",     -- save review.md
-    notes_picker = "<Space>n", -- telescope notes picker
-    quit        = "q",         -- close plugin
-    toggle_notes = "<Tab>",    -- expand/collapse notes in explorer
-    refresh     = "R",         -- refresh file list
+    note = "n",                    -- smart add/edit note on current line
+    toggle_virtual_text = "<leader>uh",
+    next_note = "]n",
+    prev_note = "[n",
+    next_file = "]f",
+    prev_file = "[f",
+    save = "<C-s>",
+    notes_picker = "<Space>n",
+    quit = "q",
+    toggle_notes = "<Tab>",
+    refresh = "R",
   },
 
   review = {
-    default_filename = "review-%Y-%m-%d.md",  -- strftime format
-    path = nil,  -- nil = git root
+    default_filename = "review-%Y-%m-%d.md",
+    path = nil, -- nil = git root
   },
 })
 ```
+
+Note: the current default UX uses `<Tab>` to switch focus between explorer and diff. If you want a dedicated expand/collapse key for explorer notes, remap `toggle_notes` to another key in your setup.
 
 ## Usage
 
 ### Inside Neovim
 
+`CodeReview` accepts any arguments you would pass to `git diff`.
+
 ```vim
-:CodeReview                    " unstaged changes (git diff HEAD)
-:CodeReview main..feature      " between two refs
-:CodeReview HEAD~3             " from 3 commits back
-:CodeReview --staged           " staged changes
+:CodeReview
+:CodeReview main..feature
+:CodeReview HEAD~3
+:CodeReview --staged
+:CodeReview -- path/to/file
+:CodeReview --staged -- path/to/file
 ```
 
 ### As git difftool
 
-Add to `~/.gitconfig`:
+Add this to `~/.gitconfig`:
 
 ```ini
 [difftool "codereview"]
@@ -90,66 +94,73 @@ Add to `~/.gitconfig`:
     prompt = false
 ```
 
-Or use the provided shell wrapper:
+Or use the wrapper shipped in `bin/codereview`:
 
 ```ini
 [difftool "codereview"]
     cmd = /path/to/codereview/bin/codereview "$LOCAL" "$REMOTE"
 ```
 
-Then use it:
+Examples:
 
 ```bash
-# Review all working tree changes
 git difftool --dir-diff -t codereview
-
-# Review staged changes
 git difftool --dir-diff --cached -t codereview
-
-# Review between branches
 git difftool --dir-diff -t codereview main..feature-branch
 ```
 
-> **Why `--dir-diff`?** This is the only mode where the plugin receives ALL changed files at once, enabling the full file explorer. Without it, git calls the tool once per file with no multi-file panel.
+`--dir-diff` is the mode that gives the plugin all changed files at once, which is what enables the multi-file explorer.
+
+## Saving and Closing
+
+- `<C-s>` opens the save prompt and writes the markdown review
+- `:w` inside the CodeReview buffers triggers the same prompt flow
+- `:W` saves directly to the auto-generated filename
+- `:q` warns if you have unsaved notes
+- `:q!` forces the review tab to close
 
 ## Keybindings
 
-### Explorer Panel (left)
+### Explorer Panel
 
-| Key             | Action                           |
-| --------------- | -------------------------------- |
-| `j` / `k`       | Navigate files and notes         |
-| `Enter` / `l`   | Open selected file in diff panel |
-| `Enter` on note | Jump to that note's line in diff |
-| `<Tab>`         | Toggle notes expand/collapse     |
-| `]f` / `[f`     | Next/prev file                   |
-| `R`             | Refresh file list                |
-| `q`             | Close plugin                     |
-| `<C-s>`         | Save review.md                   |
+| Key | Action |
+| --- | --- |
+| `j` / `k` | Navigate files and note entries |
+| `Enter` / `l` | Open selected file in diff panel |
+| `Enter` on note | Jump to that note in the diff |
+| `]f` / `[f` | Next or previous file |
+| `R` | Refresh file list |
+| `<Tab>` | Focus diff panel |
+| `q` | Close review |
+| `<C-s>` | Save review |
 
-### Diff Panel (right)
+If you want a dedicated key to expand or collapse notes in the explorer, remap `toggle_notes` in your config.
 
-| Key          | Action                                        |
-| ------------ | --------------------------------------------- |
-| vim motions  | Normal navigation (hjkl, gg, G, etc.)         |
-| `i` (normal) | Add note on current line                      |
-| `I` (normal) | Edit existing note on current line            |
-| `V` then `i` | Add note with visual selection (code context) |
-| `]n` / `[n`  | Next/prev note in current file                |
-| `]f` / `[f`  | Next/prev file                                |
-| `<C-s>`      | Save review.md (with filename prompt)         |
-| `<Space>n`   | Telescope notes picker                        |
-| `q`          | Close plugin                                  |
+### Diff Panel
 
-### Note Float Window
+| Key | Action |
+| --- | --- |
+| Vim motions | Normal navigation |
+| `n` | Smart add or edit note on current line |
+| `V` then `n` | Add note from visual selection |
+| `]n` / `[n` | Next or previous note in current file |
+| `]f` / `[f` | Next or previous file |
+| `<leader>uh` | Toggle virtual text notes |
+| `<Space>n` | Open Telescope notes picker |
+| `<Tab>` | Focus explorer panel |
+| `<C-s>` | Save review |
+| `q` | Close review |
 
-| Key           | Action                 |
-| ------------- | ---------------------- |
-| Insert mode   | Write note text freely |
-| `<C-s>`       | Confirm and save note  |
-| `<Esc>` / `q` | Cancel (discard)       |
+### Note Float
 
-## review.md Format
+| Key | Action |
+| --- | --- |
+| Insert mode | Write note text |
+| `<C-s>` | Confirm and save |
+| `q` | Cancel in normal mode |
+| `<Esc>` | Return to normal mode, then cancel with `q` or `<Esc>` |
+
+## `review.md` Format
 
 ````markdown
 # Code Review — 2026-03-14
@@ -167,13 +178,12 @@ _Write your summary here._
 ```javascript
 const result = a + b;
 ```
-````
 
-> revisar este cálculo
+> revisit this calculation
 
 ---
 
-### Lines 67–72
+### Lines 67-72
 
 ```javascript
 function handleUser(user) {
@@ -183,25 +193,29 @@ function handleUser(user) {
 }
 ```
 
-> falta null check en `user` antes de acceder a `.name`
+> add a null check for `user` before accessing `.name`
 
 ---
 
-_Generated by cowork2md_
+_Generated by codereview_
+````
 
-```
+## Current Limitations
+
+- `diff_view = "split"` is not implemented yet
+- `:CodeReview` passes all arguments directly to `git diff`
+- note anchors are based on new-file line numbers today
+- `git difftool --dir-diff` status detection is still best-effort in edge cases
 
 ## Features
 
-- **Two-panel layout**: file explorer + diff view in a dedicated tab
-- **Unified diff** with syntax highlighting (treesitter when available)
-- **Inline notes**: add notes to any diff line in normal or visual mode
-- **Virtual text**: notes appear as inline annotations in the diff view
-- **Note sub-items**: expanded notes shown under files in the explorer
-- **Note navigation**: `]n`/`[n` to jump between notes in a file
-- **Telescope picker**: search and navigate all notes across all files
-- **Markdown export**: `review-YYYY-MM-DD.md` with code blocks and blockquotes
-- **`:CodeReview`**: open from any git repo with optional ref argument
-- **`git difftool --dir-diff`**: full multi-file review from the terminal
-- **File status badges**: `[M]` modified, `[A]` added, `[D]` deleted, `[R]` renamed
-```
+- Two-panel review layout in a dedicated tab
+- Unified diff rendering with highlights
+- Smart note action for create or edit on the current line
+- Visual selection notes with captured code context
+- Virtual text notes with a visibility toggle
+- Explorer note entries and per-file note counts
+- Telescope picker for all notes
+- Markdown export with prompt flow and direct `:W` save
+- Unsaved-note protection on close
+- `git difftool --dir-diff` integration
