@@ -26,11 +26,13 @@ function M.create()
   -- Set current window to use explorer buffer
   local explorer_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(explorer_win, explorer_buf)
-  vim.api.nvim_win_set_width(explorer_win, cfg.explorer_width)
 
   -- Create diff window (right panel) via vertical split
-  vim.cmd("vsplit")
+  vim.cmd("rightbelow vsplit")
   local diff_win = vim.api.nvim_get_current_win()
+  vim.api.nvim_set_option_value("winfixwidth", true, { win = explorer_win })
+  vim.api.nvim_set_option_value("winfixwidth", false, { win = diff_win })
+  vim.api.nvim_win_set_width(explorer_win, cfg.explorer_width)
 
   -- Create diff buffer
   local diff_buf = vim.api.nvim_create_buf(false, true)

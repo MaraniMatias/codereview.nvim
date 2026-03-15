@@ -90,6 +90,7 @@ function M.render()
 	-- Write to buffer
 	vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	vim.api.nvim_set_option_value("modified", false, { buf = buf })
 	vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
 	-- Apply highlights

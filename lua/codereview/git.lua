@@ -1,26 +1,56 @@
 local M = {}
 
--- Convert a list of diff args to a safe shell string
--- Returns empty string if args_list is nil or empty
-function M._args_str(args_list)
-  if not args_list or #args_list == 0 then return "" end
-  local escaped = vim.tbl_map(vim.fn.shellescape, args_list)
-  return table.concat(escaped, " ")
+local function _append_output(chunks, data)
+  if not data then return end
+  for _, line in ipairs(data) do
+    table.insert(chunks, line)
+  end
 end
 
--- Run a shell command capturing stdout and stderr separately
--- Returns: stdout (string), exit_code (number), stderr (string)
-function M._run(cmd)
-  local stderr_file = vim.fn.tempname()
-  local stdout = vim.fn.system(cmd .. " 2>" .. vim.fn.shellescape(stderr_file))
-  local exit_code = vim.v.shell_error
-  local stderr = ""
-  if vim.fn.filereadable(stderr_file) == 1 then
-    local lines = vim.fn.readfile(stderr_file)
-    stderr = table.concat(lines, "\n")
-    vim.fn.delete(stderr_file)
+local function _join_output(chunks)
+  local lines = vim.deepcopy(chunks or {})
+  if lines[#lines] == "" then
+    table.remove(lines, #lines)
   end
-  return stdout, exit_code, stderr
+  return table.concat(lines, "\n")
+end
+
+local function _git_argv(root, args)
+  local argv = { "git" }
+  if root then
+    table.insert(argv, "-C")
+    table.insert(argv, root)
+  end
+  vim.list_extend(argv, args)
+  return argv
+end
+
+-- Run a process asynchronously and capture stdout/stderr.
+-- Returns: stdout (string), exit_code (number), stderr (string)
+function M._run(argv, callback)
+  local stdout = {}
+  local stderr = {}
+  local job_id = vim.fn.jobstart(argv, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      _append_output(stdout, data)
+    end,
+    on_stderr = function(_, data)
+      _append_output(stderr, data)
+    end,
+    on_exit = function(_, exit_code)
+      vim.schedule(function()
+        callback(_join_output(stdout), exit_code, _join_output(stderr))
+      end)
+    end,
+  })
+
+  if job_id <= 0 then
+    vim.schedule(function()
+      callback("", 1, "codereview: failed to start process")
+    end)
+  end
 end
 
 -- Classify a git stderr message into a human-readable error
@@ -39,53 +69,71 @@ local function _classify_error(stderr)
   end
 end
 
--- Get the git repository root from a given path
--- Returns root path string or nil
-function M.get_repo_root(path)
-  local result = vim.fn.system(
-    "git -C " .. vim.fn.shellescape(path or vim.fn.getcwd()) .. " rev-parse --show-toplevel 2>/dev/null"
-  )
-  result = vim.trim(result)
-  if vim.v.shell_error ~= 0 or result == "" then
-    return nil
-  end
-  return result
+local function _scan_dir(dir, callback)
+  M._run({ "find", dir, "-type", "f" }, function(stdout, exit_code, _)
+    if exit_code ~= 0 then
+      vim.notify("codereview: failed to scan difftool directories", vim.log.levels.WARN)
+      callback(nil)
+      return
+    end
+    callback(vim.split(stdout, "\n", { trimempty = true }))
+  end)
 end
 
--- Get list of changed files with their status
--- diff_args: list of git diff arguments (e.g. {"HEAD"}, {"--staged"}, {"main..feature"})
--- Returns: list of { path, status } where status is "M", "A", "D", "R", "C", "U"
-function M.get_changed_files(root, diff_args)
-  local args_str = M._args_str(diff_args)
-  local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff --name-status " .. args_str
-  local stdout, exit_code, stderr = M._run(cmd)
-  if exit_code ~= 0 then
-    vim.notify(_classify_error(stderr), vim.log.levels.WARN)
-    return nil
-  end
-  local lines = vim.split(stdout, "\n", { trimempty = true })
+local function _is_visible_difftool_path(rel)
+  return not rel:match("^%.git/")
+end
 
-  local files = {}
-  for _, line in ipairs(lines) do
-    -- Handle rename: R100\told_path\tnew_path
-    local rstatus, old_path, new_path = line:match("^(R%d*)\t(.+)\t(.+)$")
-    if rstatus then
-      table.insert(files, { path = new_path, old_path = old_path, status = "R" })
-    else
-      local status, path = line:match("^([MADRCU])\t(.+)$")
-      if status and path then
-        table.insert(files, { path = path, status = status })
+-- Get the git repository root from a given path.
+-- Returns root path string or nil.
+function M.get_repo_root(path, callback)
+  local cwd = path or vim.fn.getcwd()
+  M._run(_git_argv(cwd, { "rev-parse", "--show-toplevel" }), function(stdout, exit_code, _)
+    local result = vim.trim(stdout)
+    if exit_code ~= 0 or result == "" then
+      callback(nil)
+      return
+    end
+    callback(result)
+  end)
+end
+
+-- Get list of changed files with their status.
+-- diff_args: list of git diff arguments (e.g. {"HEAD"}, {"--staged"}, {"main..feature"})
+-- Returns via callback: list of { path, status } where status is "M", "A", "D", "R", "C", "U"
+function M.get_changed_files(root, diff_args, callback)
+  local argv = { "diff", "--name-status" }
+  vim.list_extend(argv, diff_args or {})
+
+  M._run(_git_argv(root, argv), function(stdout, exit_code, stderr)
+    if exit_code ~= 0 then
+      vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+      callback(nil)
+      return
+    end
+
+    local lines = vim.split(stdout, "\n", { trimempty = true })
+    local files = {}
+    for _, line in ipairs(lines) do
+      local rstatus, old_path, new_path = line:match("^(R%d*)\t(.+)\t(.+)$")
+      if rstatus then
+        table.insert(files, { path = new_path, old_path = old_path, status = "R" })
+      else
+        local status, path = line:match("^([MADRCU])\t(.+)$")
+        if status and path then
+          table.insert(files, { path = path, status = status })
+        end
       end
     end
-  end
-  return files
+
+    callback(files)
+  end)
 end
 
--- Get the old content of a file (before changes)
--- diff_args: list of git diff arguments used for this review session
--- Returns: string content or nil
-function M.get_file_old(root, path, diff_args)
+-- Get the old content of a file (before changes).
+-- diff_args: list of git diff arguments used for this review session.
+-- Returns via callback: string content or nil.
+function M.get_file_old(root, path, diff_args, callback)
   local is_staged = false
   for _, arg in ipairs(diff_args or {}) do
     if arg == "--staged" or arg == "--cached" then
@@ -94,13 +142,10 @@ function M.get_file_old(root, path, diff_args)
     end
   end
 
-  local cmd
+  local argv
   if is_staged then
-    -- Read from the index (staged version of old file)
-    cmd = "git -C " .. vim.fn.shellescape(root) ..
-      " show :" .. vim.fn.shellescape(path)
+    argv = { "show", ":" .. path }
   else
-    -- Find first non-flag arg as ref; default to HEAD
     local ref = "HEAD"
     for _, arg in ipairs(diff_args or {}) do
       if not arg:match("^%-") then
@@ -108,145 +153,180 @@ function M.get_file_old(root, path, diff_args)
         break
       end
     end
-    cmd = "git -C " .. vim.fn.shellescape(root) ..
-      " show " .. vim.fn.shellescape(ref) .. ":" .. vim.fn.shellescape(path)
+    argv = { "show", ref .. ":" .. path }
   end
 
-  local content, exit_code, stderr = M._run(cmd)
-  if exit_code ~= 0 then
-    -- Silently ignore "new file" errors (file didn't exist in the ref): expected
-    if not stderr:find("exists on disk, but not in", 1, true)
-        and not stderr:find("does not exist in", 1, true) then
-      vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+  M._run(_git_argv(root, argv), function(content, exit_code, stderr)
+    if exit_code ~= 0 then
+      if not stderr:find("exists on disk, but not in", 1, true)
+          and not stderr:find("does not exist in", 1, true) then
+        vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+      end
+      callback(nil)
+      return
     end
-    return nil
-  end
-  return content
+    callback(content)
+  end)
 end
 
--- Get unified diff for a single file
--- diff_args: list of git diff arguments; any existing "-- path" tokens are stripped
--- Returns: diff string
-function M.get_file_diff(root, path, diff_args)
-  -- Strip any "-- <path>" suffix from diff_args (we append our own)
+-- Get unified diff for a single file.
+-- diff_args: list of git diff arguments; any existing "-- path" tokens are stripped.
+-- Returns via callback: diff string.
+function M.get_file_diff(root, path, diff_args, callback)
   local clean_args = {}
   for _, arg in ipairs(diff_args or {}) do
     if arg == "--" then break end
     table.insert(clean_args, arg)
   end
-  local args_str = M._args_str(clean_args)
-  local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff " .. args_str .. " -- " .. vim.fn.shellescape(path)
-  local result, exit_code, stderr = M._run(cmd)
-  if exit_code ~= 0 then
-    vim.notify(_classify_error(stderr), vim.log.levels.WARN)
-    return nil
-  end
-  return result
+
+  local argv = { "diff" }
+  vim.list_extend(argv, clean_args)
+  table.insert(argv, "--")
+  table.insert(argv, path)
+
+  M._run(_git_argv(root, argv), function(result, exit_code, stderr)
+    if exit_code ~= 0 then
+      vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+      callback(nil)
+      return
+    end
+    callback(result)
+  end)
 end
 
--- Get diff for staged changes
-function M.get_staged_diff(root, path)
-  local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff --cached -- " .. vim.fn.shellescape(path)
-  local result, exit_code, stderr = M._run(cmd)
-  if exit_code ~= 0 then
-    vim.notify(_classify_error(stderr), vim.log.levels.WARN)
-    return nil
-  end
-  return result
+-- Get diff for staged changes.
+function M.get_staged_diff(root, path, callback)
+  M._run(_git_argv(root, { "diff", "--cached", "--", path }), function(result, exit_code, stderr)
+    if exit_code ~= 0 then
+      vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+      callback(nil)
+      return
+    end
+    callback(result)
+  end)
 end
 
--- Get diff between two files (for difftool mode)
--- local_file: path to old version, remote_file: path to new version
--- Returns: diff string
-function M.diff_files(local_file, remote_file)
-  local cmd = "diff -u " .. vim.fn.shellescape(local_file) ..
-    " " .. vim.fn.shellescape(remote_file) .. " 2>/dev/null"
-  local result = vim.fn.system(cmd)
-  -- diff returns exit code 1 when files differ (normal), 0 when same, 2 on error
-  if vim.v.shell_error == 2 then
-    return nil
-  end
-  return result
+-- Get diff between two files (for difftool mode).
+-- local_file: path to old version, remote_file: path to new version.
+-- Returns via callback: diff string.
+function M.diff_files(local_file, remote_file, callback)
+  M._run({ "diff", "-u", local_file, remote_file }, function(result, exit_code, _)
+    if exit_code == 2 then
+      callback(nil)
+      return
+    end
+    callback(result)
+  end)
 end
 
--- Scan two directories (local/remote) for difftool --dir-diff mode
--- Returns: list of { path, status, local_file, remote_file }, sorted by path
+-- Scan two directories (local/remote) for difftool --dir-diff mode.
+-- Returns via callback: list of { path, status, local_file, remote_file }, sorted by path.
 -- Note: rename detection is not possible in --dir-diff mode without git metadata;
 -- only A/D/M statuses are reported. Identical files are excluded.
-function M.scan_dir_diff(local_dir, remote_dir)
-  local files = {}
-  local seen = {}
+function M.scan_dir_diff(local_dir, remote_dir, callback)
+  local listings = {}
+  local completed_scans = 0
+  local failed = false
 
-  -- Get all files in remote dir (new/modified)
-  local remote_files = vim.fn.systemlist(
-    "find " .. vim.fn.shellescape(remote_dir) .. " -type f 2>/dev/null"
-  )
-  for _, fpath in ipairs(remote_files) do
-    local rel = fpath:sub(#remote_dir + 2)  -- strip remote_dir/ prefix
-    if not rel:match("^%.git/") then
-      local local_file = local_dir .. "/" .. rel
-      local status
-      if vim.fn.filereadable(local_file) == 1 then
-        -- Check if files are identical; skip if so
-        vim.fn.system("diff -q " .. vim.fn.shellescape(local_file) ..
-          " " .. vim.fn.shellescape(fpath) .. " 2>/dev/null")
-        if vim.v.shell_error == 0 then
-          seen[rel] = true
-          goto continue
-        end
-        status = "M"
-      else
-        status = "A"
+  local function on_scan_done(kind, files)
+    if failed then return end
+    if files == nil then
+      failed = true
+      callback(nil)
+      return
+    end
+
+    listings[kind] = files
+    completed_scans = completed_scans + 1
+    if completed_scans < 2 then return end
+
+    local local_index = {}
+    local remote_index = {}
+    for _, fpath in ipairs(listings["local"]) do
+      local rel = fpath:sub(#local_dir + 2)
+      if _is_visible_difftool_path(rel) then
+        local_index[rel] = fpath
       end
-      table.insert(files, {
-        path = rel,
-        status = status,
-        local_file = local_file,
-        remote_file = fpath,
-      })
-      seen[rel] = true
-      ::continue::
     end
+    for _, fpath in ipairs(listings["remote"]) do
+      local rel = fpath:sub(#remote_dir + 2)
+      if _is_visible_difftool_path(rel) then
+        remote_index[rel] = fpath
+      end
+    end
+
+    local files = {}
+    local pending_compares = 0
+    local compare_done = false
+
+    local function finish()
+      if compare_done or pending_compares ~= 0 then return end
+      compare_done = true
+      table.sort(files, function(a, b) return a.path < b.path end)
+      callback(files)
+    end
+
+    for rel, remote_file in pairs(remote_index) do
+      local local_file = local_index[rel]
+      if not local_file then
+        table.insert(files, {
+          path = rel,
+          status = "A",
+          local_file = local_dir .. "/" .. rel,
+          remote_file = remote_file,
+        })
+      else
+        pending_compares = pending_compares + 1
+        M._run({ "diff", "-q", local_file, remote_file }, function(_, exit_code, _)
+          if exit_code ~= 0 then
+            table.insert(files, {
+              path = rel,
+              status = "M",
+              local_file = local_file,
+              remote_file = remote_file,
+            })
+          end
+
+          pending_compares = pending_compares - 1
+          finish()
+        end)
+      end
+    end
+
+    for rel, local_file in pairs(local_index) do
+      if not remote_index[rel] then
+        table.insert(files, {
+          path = rel,
+          status = "D",
+          local_file = local_file,
+          remote_file = nil,
+        })
+      end
+    end
+
+    finish()
   end
 
-  -- Get files only in local dir (deleted)
-  local local_files = vim.fn.systemlist(
-    "find " .. vim.fn.shellescape(local_dir) .. " -type f 2>/dev/null"
-  )
-  for _, fpath in ipairs(local_files) do
-    local rel = fpath:sub(#local_dir + 2)
-    if not rel:match("^%.git/") and not seen[rel] then
-      table.insert(files, {
-        path = rel,
-        status = "D",
-        local_file = fpath,
-        remote_file = nil,
-      })
-    end
-  end
-
-  -- Sort results alphabetically by path
-  table.sort(files, function(a, b) return a.path < b.path end)
-
-  return files
+  _scan_dir(local_dir, function(files)
+    on_scan_done("local", files)
+  end)
+  _scan_dir(remote_dir, function(files)
+    on_scan_done("remote", files)
+  end)
 end
 
--- Get diff content for a FileEntry in difftool mode
-function M.get_difftool_diff(file_entry)
+-- Get diff content for a FileEntry in difftool mode.
+function M.get_difftool_diff(file_entry, callback)
   if file_entry.status == "A" then
-    -- New file: diff against /dev/null
-    local cmd = "diff -u /dev/null " .. vim.fn.shellescape(file_entry.remote_file) .. " 2>/dev/null"
-    local result = vim.fn.system(cmd)
-    return result
+    M._run({ "diff", "-u", "/dev/null", file_entry.remote_file }, function(result, _, _)
+      callback(result)
+    end)
   elseif file_entry.status == "D" then
-    -- Deleted file: diff against /dev/null
-    local cmd = "diff -u " .. vim.fn.shellescape(file_entry.local_file) .. " /dev/null 2>/dev/null"
-    local result = vim.fn.system(cmd)
-    return result
+    M._run({ "diff", "-u", file_entry.local_file, "/dev/null" }, function(result, _, _)
+      callback(result)
+    end)
   else
-    return M.diff_files(file_entry.local_file, file_entry.remote_file)
+    M.diff_files(file_entry.local_file, file_entry.remote_file, callback)
   end
 end
 

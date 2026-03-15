@@ -98,31 +98,4 @@ function M.has_any()
   return false
 end
 
--- Serialize notes to JSON string for persistence
-function M.serialize()
-  local all = M.get_all()
-  local result = {}
-  for _, note in ipairs(all) do
-    table.insert(result, {
-      filepath = note.filepath,
-      line_start = note.line_start,
-      line_end = note.line_end,
-      code = note.code,
-      text = note.text,
-    })
-  end
-  return vim.fn.json_encode(result)
-end
-
--- Deserialize notes from JSON
-function M.deserialize(json_str)
-  local ok, data = pcall(vim.fn.json_decode, json_str)
-  if not ok or type(data) ~= "table" then return end
-  local s = state.get()
-  s.notes = {}
-  for _, entry in ipairs(data) do
-    M.set(entry.filepath, entry.line_start, entry.line_end, entry.code, entry.text)
-  end
-end
-
 return M

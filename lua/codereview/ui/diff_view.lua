@@ -4,6 +4,8 @@ local config = require("codereview.config")
 local diff_parser = require("codereview.diff_parser")
 local virtual = require("codereview.notes.virtual")
 local git = require("codereview.git")
+local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
+local diff_request_id = 0
 
 -- NOTE: current_display is module-level state. Only one diff view can exist
 -- per Neovim session. Call M.clear() when closing the layout.
@@ -13,6 +15,26 @@ local current_display = {
   line_map = {},  -- display_line (1-based) -> new_lnum (1-based)
 }
 
+local function reset_display()
+  current_display.lines = {}
+  current_display.line_types = {}
+  current_display.line_map = {}
+end
+
+local function set_buffer_lines(buf, lines)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modified", false, { buf = buf })
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+end
+
+local function focus_top(win)
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  end
+end
+
 -- Show diff for a file by index
 function M.show_file(idx)
   local s = state.get()
@@ -21,80 +43,89 @@ function M.show_file(idx)
   if not file or not buf or not vim.api.nvim_buf_is_valid(buf) then return end
 
   s.current_file_idx = idx
+  diff_request_id = diff_request_id + 1
+  local request_id = diff_request_id
 
-  -- Get the diff text
-  local diff_text = M._get_diff_for_file(file)
-  if not diff_text or diff_text == "" then
-    vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "  (no changes)" })
-    vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
-    return
-  end
-
-  -- Parse diff
-  local parsed = diff_parser.parse(diff_text)
-  local lines, line_types = diff_parser.get_display_lines(parsed)
-
-  -- Build line_map: display line -> new_lnum
-  -- Account for file header lines prepended by get_display_lines
-  local header_offset = (parsed.old_file and parsed.new_file) and 2 or 0
-  local line_map = {}
-  local display_lnum = 1 + header_offset
-  for _, hunk in ipairs(parsed.hunks) do
-    display_lnum = display_lnum + 1  -- hunk header line
-    for _, l in ipairs(hunk.lines) do
-      if l.new_lnum then
-        line_map[display_lnum] = l.new_lnum
-      end
-      display_lnum = display_lnum + 1
-    end
-  end
-
-  current_display.lines = lines
-  current_display.line_types = line_types
-  current_display.line_map = line_map
-
-  -- Write to buffer
-  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
-
-  -- Apply diff highlights
-  M._apply_diff_highlights(buf, line_types)
-
-  -- Apply syntax highlight for the file type
-  local ext = file.path:match("%.([^%.]+)$")
-  if ext then
-    local ok, lang = pcall(vim.treesitter.language.get_lang, ext)
-    if ok and lang then
-      pcall(vim.treesitter.start, buf, lang)
-    end
-  end
-
-  -- Render notes as virtual text
-  virtual.render_notes(buf, file.path, line_map)
-
-  -- Set buffer name to show current file
+  reset_display()
+  virtual.clear_extmarks(buf)
+  set_buffer_lines(buf, { "  (loading diff...)" })
   pcall(vim.api.nvim_buf_set_name, buf, "codereview://" .. file.path)
+  focus_top(s.windows.diff)
 
-  -- Move cursor to top
-  if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
-    vim.api.nvim_win_set_cursor(s.windows.diff, { 1, 0 })
-  end
+  M._get_diff_for_file(file, function(diff_text)
+    local current_state = state.get()
+    local current_file = current_state.files[current_state.current_file_idx]
+    if request_id ~= diff_request_id then return end
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+    if not current_file or current_file.path ~= file.path then return end
+
+    if diff_text == nil then
+      reset_display()
+      set_buffer_lines(buf, { "  (failed to load diff)" })
+      focus_top(current_state.windows.diff)
+      return
+    end
+
+    if diff_text == "" then
+      reset_display()
+      set_buffer_lines(buf, { "  (no changes)" })
+      focus_top(current_state.windows.diff)
+      return
+    end
+
+    local parsed = diff_parser.parse(diff_text)
+    local lines, line_types = diff_parser.get_display_lines(parsed)
+
+    local header_offset = (parsed.old_file and parsed.new_file) and 2 or 0
+    local line_map = {}
+    local display_lnum = 1 + header_offset
+    for _, hunk in ipairs(parsed.hunks) do
+      display_lnum = display_lnum + 1
+      for _, l in ipairs(hunk.lines) do
+        if l.new_lnum then
+          line_map[display_lnum] = l.new_lnum
+        end
+        display_lnum = display_lnum + 1
+      end
+    end
+
+    current_display.lines = lines
+    current_display.line_types = line_types
+    current_display.line_map = line_map
+
+    set_buffer_lines(buf, lines)
+    M._apply_diff_highlights(buf, line_types)
+
+    local ext = file.path:match("%.([^%.]+)$")
+    if ext then
+      local ok, lang = pcall(vim.treesitter.language.get_lang, ext)
+      if ok and lang then
+        pcall(vim.treesitter.start, buf, lang)
+      end
+    end
+
+    if current_state.notes_visible then
+      virtual.render_notes(buf, file.path, line_map)
+    else
+      virtual.clear_extmarks(buf)
+    end
+
+    pcall(vim.api.nvim_buf_set_name, buf, "codereview://" .. file.path)
+    focus_top(current_state.windows.diff)
+  end)
 end
 
-function M._get_diff_for_file(file)
+function M._get_diff_for_file(file, callback)
   local s = state.get()
   if s.mode == "difftool" then
-    return git.get_difftool_diff(file)
+    git.get_difftool_diff(file, callback)
   else
-    return git.get_file_diff(s.root, file.path, s.diff_args)
+    git.get_file_diff(s.root, file.path, s.diff_args, callback)
   end
 end
 
 function M._apply_diff_highlights(buf, line_types)
-  local ns = vim.api.nvim_create_namespace("codereview_diff")
-  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(buf, diff_ns, 0, -1)
 
   -- Ensure CodeReviewFileHdr highlight group exists (linked to Label as fallback)
   vim.api.nvim_set_hl(0, "CodeReviewFileHdr", { link = "Label", default = true })
@@ -111,7 +142,7 @@ function M._apply_diff_highlights(buf, line_types)
       hl = "CodeReviewFileHdr"
     end
     if hl then
-      vim.api.nvim_buf_add_highlight(buf, ns, hl, lnum - 1, 0, -1)
+      vim.api.nvim_buf_add_highlight(buf, diff_ns, hl, lnum - 1, 0, -1)
     end
   end
 end
@@ -310,9 +341,8 @@ end
 
 -- Reset current_display state (call when closing the layout)
 function M.clear()
-  current_display.lines = {}
-  current_display.line_types = {}
-  current_display.line_map = {}
+  diff_request_id = diff_request_id + 1
+  reset_display()
 end
 
 -- Refresh notes display
@@ -321,7 +351,11 @@ function M.refresh_notes()
   local buf = s.buffers.diff
   local file = s.files[s.current_file_idx]
   if not file or not buf then return end
-  virtual.render_notes(buf, file.path, current_display.line_map)
+  if s.notes_visible then
+    virtual.render_notes(buf, file.path, current_display.line_map)
+  else
+    virtual.clear_extmarks(buf)
+  end
 end
 
 return M
