@@ -12,6 +12,14 @@ local STATUS_ICONS = {
   U = "[U]",
 }
 
+local function file_label(file)
+  if file.status == "R" and file.old_path and file.old_path ~= "" then
+    return file.old_path .. " -> " .. file.path
+  end
+
+  return file.path
+end
+
 function M.build(files, current_file_idx)
   local lines = {}
   local actions_by_line = {}
@@ -26,7 +34,7 @@ function M.build(files, current_file_idx)
     local note_count = store.count_for_file(file.path)
     local note_marker = note_count > 0 and (" (" .. note_count .. ")") or ""
 
-    table.insert(lines, marker .. icon .. " " .. file.path .. note_marker)
+    table.insert(lines, marker .. icon .. " " .. file_label(file) .. note_marker)
     actions_by_line[#lines] = { type = "file", idx = idx }
 
     if file.expanded then

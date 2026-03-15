@@ -1,7 +1,7 @@
 local M = {}
 
 -- FileEntry structure:
--- { path = "src/foo.js", status = "M"|"A"|"D"|"R", expanded = false }
+-- { path = "src/foo.js", status = "M"|"A"|"D"|"R", old_path = "src/old.js"?, expanded = false }
 
 local initial_state = {
   mode = nil,          -- "difftool" | "review"

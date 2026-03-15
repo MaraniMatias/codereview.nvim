@@ -52,17 +52,59 @@ local function set_diff_message(message)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 end
 
-local function restore_expanded_state(files, existing_files)
-  local expanded_by_path = {}
-  for _, existing in ipairs(existing_files) do
-    expanded_by_path[existing.path] = existing.expanded
+local function _file_identity_candidates(file)
+  if not file then
+    return {}
   end
+
+  local candidates = {}
+  local seen = {}
+
+  local function add(path)
+    if path and path ~= "" and not seen[path] then
+      seen[path] = true
+      table.insert(candidates, path)
+    end
+  end
+
+  add(file.path)
+  add(file.old_path)
+
+  return candidates
+end
+
+local function _files_share_identity(lhs, rhs)
+  if not lhs or not rhs then
+    return false
+  end
+
+  local identities = {}
+  for _, candidate in ipairs(_file_identity_candidates(lhs)) do
+    identities[candidate] = true
+  end
+
+  for _, candidate in ipairs(_file_identity_candidates(rhs)) do
+    if identities[candidate] then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function restore_expanded_state(files, existing_files)
   for _, file in ipairs(files) do
-    file.expanded = expanded_by_path[file.path] or false
+    file.expanded = false
+    for _, existing in ipairs(existing_files) do
+      if _files_share_identity(file, existing) then
+        file.expanded = existing.expanded or false
+        break
+      end
+    end
   end
 end
 
-local function restore_current_file(previous_path)
+local function restore_current_file(previous_file)
   local s = state.get()
   if #s.files == 0 then
     s.current_file_idx = 1
@@ -70,7 +112,7 @@ local function restore_current_file(previous_path)
   end
 
   for idx, file in ipairs(s.files) do
-    if file.path == previous_path then
+    if _files_share_identity(file, previous_file) then
       s.current_file_idx = idx
       return
     end
@@ -198,7 +240,6 @@ function M.refresh()
   local explorer = require("codereview.ui.explorer")
   local diff_view = require("codereview.ui.diff_view")
   local current_file = s.files[s.current_file_idx]
-  local current_path = current_file and current_file.path or nil
 
   local function apply_refresh(files)
     refreshing = false
@@ -211,7 +252,7 @@ function M.refresh()
     end
 
     s.files = files
-    restore_current_file(current_path)
+    restore_current_file(current_file)
     explorer.render()
 
     if #s.files == 0 then

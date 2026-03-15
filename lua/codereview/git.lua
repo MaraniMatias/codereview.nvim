@@ -48,7 +48,7 @@ function M._run(argv, callback)
 
   if job_id <= 0 then
     vim.schedule(function()
-      callback("", 1, "codereview: failed to start process")
+      callback("", 127, "codereview: failed to start process")
     end)
   end
 end
@@ -69,6 +69,161 @@ local function _classify_error(stderr)
   end
 end
 
+local function _classify_no_index_error(stderr)
+  if stderr:find("Could not access", 1, true)
+      or stderr:find("No such file or directory", 1, true)
+      or stderr:find("Permission denied", 1, true) then
+    return "codereview: failed to compare files"
+  end
+  return "codereview: git diff --no-index failed"
+end
+
+local function _cleanup_files(paths)
+  for _, path in ipairs(paths or {}) do
+    if path and path ~= "" then
+      pcall(vim.fn.delete, path)
+    end
+  end
+end
+
+local function _normalize_diff_output(stdout, old_label, new_label)
+  if not old_label or not new_label then
+    return stdout
+  end
+
+  local lines = vim.split(stdout, "\n", { plain = true })
+  local hunk_start = nil
+  for idx, line in ipairs(lines) do
+    if line:match("^@@ ") then
+      hunk_start = idx
+      break
+    end
+  end
+
+  if not hunk_start then
+    return stdout
+  end
+
+  local normalized = {
+    "--- " .. old_label,
+    "+++ " .. new_label,
+  }
+
+  for idx = hunk_start, #lines do
+    table.insert(normalized, lines[idx])
+  end
+
+  return table.concat(normalized, "\n")
+end
+
+local function is_binary_diff_output(stdout, stderr)
+  local function has_binary_marker(text)
+    return text and text:find("Binary files ", 1, true) ~= nil and text:find(" differ", 1, true) ~= nil
+  end
+
+  return has_binary_marker(stdout) or has_binary_marker(stderr)
+end
+
+local function build_binary_placeholder(old_label, new_label, status)
+  local message = "Binary files differ"
+  if status == "A" then
+    message = "Binary file added"
+  elseif status == "D" then
+    message = "Binary file deleted"
+  end
+
+  return table.concat({
+    "--- " .. old_label,
+    "+++ " .. new_label,
+    message,
+  }, "\n")
+end
+
+local function classify_no_index_diff_result(stdout, exit_code, stderr, opts)
+  opts = opts or {}
+  local old_label = opts.old_label or opts.old_file or "old"
+  local new_label = opts.new_label or opts.new_file or "new"
+  local trimmed_stderr = vim.trim(stderr or "")
+
+  if exit_code == 0 then
+    return { kind = "same", diff = "" }
+  end
+
+  if exit_code == 1 then
+    if is_binary_diff_output(stdout, stderr) then
+      return {
+        kind = "binary",
+        diff = build_binary_placeholder(old_label, new_label, opts.status),
+      }
+    end
+
+    if trimmed_stderr ~= "" and stdout == "" then
+      return {
+        kind = "error",
+        diff = nil,
+        message = _classify_no_index_error(stderr),
+      }
+    end
+
+    return {
+      kind = "text",
+      diff = _normalize_diff_output(stdout, old_label, new_label),
+    }
+  end
+
+  return {
+    kind = "error",
+    diff = nil,
+    message = _classify_no_index_error(stderr),
+  }
+end
+
+local function run_no_index_diff(old_file, new_file, opts, callback)
+  opts = opts or {}
+  local argv = {
+    "git",
+    "diff",
+    "--no-index",
+    "--no-ext-diff",
+    "--",
+    old_file,
+    new_file,
+  }
+
+  M._run(argv, function(stdout, exit_code, stderr)
+    _cleanup_files(opts.cleanup_files)
+
+    local result = classify_no_index_diff_result(stdout, exit_code, stderr, {
+      old_file = old_file,
+      new_file = new_file,
+      old_label = opts.old_label,
+      new_label = opts.new_label,
+      status = opts.status,
+    })
+
+    if result.kind == "error" and opts.notify ~= false then
+      vim.notify(result.message, vim.log.levels.WARN)
+    end
+
+    callback(result)
+  end)
+end
+
+local function _create_empty_tempfile()
+  local path = vim.fn.tempname()
+  local ok = pcall(vim.fn.writefile, {}, path, "b")
+  if not ok then
+    vim.notify("codereview: failed to create temporary file", vim.log.levels.WARN)
+    return nil
+  end
+  return path
+end
+
+local function _to_diff_label(prefix, path)
+  local normalized = (path or ""):gsub("\\", "/")
+  return prefix .. "/" .. normalized
+end
+
 local function _scan_dir(dir, callback)
   M._run({ "find", dir, "-type", "f" }, function(stdout, exit_code, _)
     if exit_code ~= 0 then
@@ -81,7 +236,13 @@ local function _scan_dir(dir, callback)
 end
 
 local function _is_visible_difftool_path(rel)
-  return not rel:match("^%.git/")
+  local segments = vim.split(rel or "", "/", { plain = true, trimempty = true })
+  for idx = 1, math.max(#segments - 1, 0) do
+    if segments[idx]:sub(1, 1) == "." then
+      return false
+    end
+  end
+  return true
 end
 
 -- Get the git repository root from a given path.
@@ -169,10 +330,9 @@ function M.get_file_old(root, path, diff_args, callback)
   end)
 end
 
--- Get unified diff for a single file.
--- diff_args: list of git diff arguments; any existing "-- path" tokens are stripped.
--- Returns via callback: diff string.
-function M.get_file_diff(root, path, diff_args, callback)
+-- file_entry: { path, status?, old_path? }
+function M.get_file_diff(root, file_entry, diff_args, callback)
+  local path = type(file_entry) == "table" and file_entry.path or file_entry
   local clean_args = {}
   for _, arg in ipairs(diff_args or {}) do
     if arg == "--" then break end
@@ -182,7 +342,12 @@ function M.get_file_diff(root, path, diff_args, callback)
   local argv = { "diff" }
   vim.list_extend(argv, clean_args)
   table.insert(argv, "--")
-  table.insert(argv, path)
+  if type(file_entry) == "table" and file_entry.status == "R" and file_entry.old_path then
+    table.insert(argv, file_entry.old_path)
+    table.insert(argv, file_entry.path)
+  else
+    table.insert(argv, path)
+  end
 
   M._run(_git_argv(root, argv), function(result, exit_code, stderr)
     if exit_code ~= 0 then
@@ -209,13 +374,9 @@ end
 -- Get diff between two files (for difftool mode).
 -- local_file: path to old version, remote_file: path to new version.
 -- Returns via callback: diff string.
-function M.diff_files(local_file, remote_file, callback)
-  M._run({ "diff", "-u", local_file, remote_file }, function(result, exit_code, _)
-    if exit_code == 2 then
-      callback(nil)
-      return
-    end
-    callback(result)
+function M.diff_files(local_file, remote_file, callback, opts)
+  run_no_index_diff(local_file, remote_file, opts, function(result)
+    callback(result.diff)
   end)
 end
 
@@ -260,6 +421,7 @@ function M.scan_dir_diff(local_dir, remote_dir, callback)
     local compare_done = false
 
     local function finish()
+      if failed then return end
       if compare_done or pending_compares ~= 0 then return end
       compare_done = true
       table.sort(files, function(a, b) return a.path < b.path end)
@@ -277,8 +439,21 @@ function M.scan_dir_diff(local_dir, remote_dir, callback)
         })
       else
         pending_compares = pending_compares + 1
-        M._run({ "diff", "-q", local_file, remote_file }, function(_, exit_code, _)
-          if exit_code ~= 0 then
+        run_no_index_diff(local_file, remote_file, { notify = false }, function(result)
+          if failed then
+            pending_compares = pending_compares - 1
+            finish()
+            return
+          end
+
+          if result.kind == "error" then
+            failed = true
+            vim.notify(result.message, vim.log.levels.WARN)
+            callback(nil)
+            return
+          end
+
+          if result.kind ~= "same" then
             table.insert(files, {
               path = rel,
               status = "M",
@@ -317,16 +492,44 @@ end
 
 -- Get diff content for a FileEntry in difftool mode.
 function M.get_difftool_diff(file_entry, callback)
+  local rel_path = file_entry.path or vim.fn.fnamemodify(file_entry.remote_file or file_entry.local_file or "", ":t")
+
   if file_entry.status == "A" then
-    M._run({ "diff", "-u", "/dev/null", file_entry.remote_file }, function(result, _, _)
-      callback(result)
+    local empty_file = _create_empty_tempfile()
+    if not empty_file then
+      callback(nil)
+      return
+    end
+
+    run_no_index_diff(empty_file, file_entry.remote_file, {
+      status = file_entry.status,
+      old_label = "/dev/null",
+      new_label = _to_diff_label("b", rel_path),
+      cleanup_files = { empty_file },
+    }, function(result)
+      callback(result.diff)
     end)
   elseif file_entry.status == "D" then
-    M._run({ "diff", "-u", file_entry.local_file, "/dev/null" }, function(result, _, _)
-      callback(result)
+    local empty_file = _create_empty_tempfile()
+    if not empty_file then
+      callback(nil)
+      return
+    end
+
+    run_no_index_diff(file_entry.local_file, empty_file, {
+      status = file_entry.status,
+      old_label = _to_diff_label("a", rel_path),
+      new_label = "/dev/null",
+      cleanup_files = { empty_file },
+    }, function(result)
+      callback(result.diff)
     end)
   else
-    M.diff_files(file_entry.local_file, file_entry.remote_file, callback)
+    M.diff_files(file_entry.local_file, file_entry.remote_file, callback, {
+      status = file_entry.status,
+      old_label = _to_diff_label("a", rel_path),
+      new_label = _to_diff_label("b", rel_path),
+    })
   end
 end
 

@@ -4,7 +4,7 @@ local M = {}
 -- Returns: { old_file, new_file, hunks = { { header, lines = { {type, content, old_lnum, new_lnum} } } } }
 -- old_file and new_file are captured from "--- " / "+++ " lines before the first hunk
 function M.parse(diff_text)
-  local result = { hunks = {} }
+  local result = { hunks = {}, info_lines = {} }
   local current_hunk = nil
   local old_lnum = 0
   local new_lnum = 0
@@ -27,10 +27,13 @@ function M.parse(diff_text)
       local old_file = line:match("^%-%-%- (.+)$")
       if old_file then
         result.old_file = old_file
-      end
-      local new_file = line:match("^%+%+%+ (.+)$")
-      if new_file then
-        result.new_file = new_file
+      else
+        local new_file = line:match("^%+%+%+ (.+)$")
+        if new_file then
+          result.new_file = new_file
+        elseif line ~= "" then
+          table.insert(result.info_lines, line)
+        end
       end
     elseif current_hunk then
       if line:sub(1, 1) == "+" then
@@ -78,6 +81,11 @@ function M.get_display_lines(parsed)
     table.insert(line_types, "file_hdr")
     table.insert(lines, "+++ " .. parsed.new_file)
     table.insert(line_types, "file_hdr")
+  end
+
+  for _, info_line in ipairs(parsed.info_lines or {}) do
+    table.insert(lines, info_line)
+    table.insert(line_types, "info")
   end
 
   for _, hunk in ipairs(parsed.hunks) do
