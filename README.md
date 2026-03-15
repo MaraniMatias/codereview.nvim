@@ -5,7 +5,7 @@ Inline code review on any `git diff`, right inside Neovim.
 [![Neovim](https://img.shields.io/badge/Neovim-%3E%3D0.9-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![License](https://img.shields.io/github/license/MaraniMatias/codereview.nvim)](LICENSE)
 
-![Screenshot](./docs/screenshot.png)
+![Screenshot](./screenshot.gif)
 
 ## Features
 
@@ -17,16 +17,39 @@ Inline code review on any `git diff`, right inside Neovim.
 
 **Safety** — Unsaved-note protection on close, large diff pagination with configurable thresholds.
 
+### Export Format
+
+Running `:w` or `:W` generates a Markdown file with each note grouped under its file path, including the relevant code context:
+
+````markdown
+# Review 2026-03-14
+
+`src/foo.js`
+
+```text {0,1}
+const result = a + b;
+```
+
+revisit this calculation
+
+`handlers/user.js`
+
+```text {67,72}
+function handleUser(user) {
+  if (user.name) {
+    return user.name;
+  }
+}
+```
+
+Add a null check for `user` before accessing `.name`
+````
+
 ## Quick Start
 
 1. Install the plugin (see [Installation](#installation))
 2. Open a review: `:CodeReview`
 3. Navigate files with `j`/`k`, press `n` on any diff line to add a note, export with `:w`
-
-## Requirements
-
-- Neovim >= 0.9
-- Git
 
 ## Installation
 
@@ -60,12 +83,12 @@ Inline code review on any `git diff`, right inside Neovim.
 
 ### Saving and Closing
 
-| Command | Effect |
-| ------- | ------ |
+| Command | Effect                                        |
+| ------- | --------------------------------------------- |
 | `:w`    | Opens save prompt, writes the markdown review |
 | `:W`    | Saves directly to the auto-generated filename |
-| `:q`    | Warns if you have unsaved notes |
-| `:q!`   | Forces the review tab to close |
+| `:q`    | Warns if you have unsaved notes               |
+| `:q!`   | Forces the review tab to close                |
 
 Notes live in memory for the current session only; exporting saves the Markdown review, not the in-editor note state.
 
@@ -140,11 +163,11 @@ All keybindings are remappable via `keymaps` in your setup config.
 
 ### Note Editor
 
-| Key     | Action                                 |
-| ------- | -------------------------------------- |
-| `w`     | Save note (normal mode)                |
-| `q`     | Discard note without asking            |
-| `<Esc>` | Ask to save or discard                 |
+| Key     | Action                      |
+| ------- | --------------------------- |
+| `w`     | Save note (normal mode)     |
+| `q`     | Discard note without asking |
+| `<Esc>` | Ask to save or discard      |
 
 ## Configuration
 
@@ -159,8 +182,7 @@ require("codereview").setup({
 })
 ```
 
-<details>
-<summary>Full configuration reference</summary>
+### Full configuration reference
 
 ```lua
 require("codereview").setup({
@@ -198,37 +220,7 @@ require("codereview").setup({
 })
 ```
 
-</details>
-
 Large diffs keep the current behavior when they fit within `max_diff_lines`. When a diff exceeds that limit, CodeReview renders the first slice, shows a truncation sentinel at the bottom, and each `load_more_diff` action reveals another `diff_page_size` lines.
-
-## Export Format
-
-Running `:w` or `:W` generates a Markdown file with each note grouped under its file path, including the relevant code context:
-
-````markdown
-# Review 2026-03-14
-
-`src/foo.js`
-
-```text {0,1}
-const result = a + b;
-```
-
-revisit this calculation
-
-`handlers/user.js`
-
-```text {67,72}
-function handleUser(user) {
-  if (user.name) {
-    return user.name;
-  }
-}
-```
-
-Add a null check for `user` before accessing `.name`
-````
 
 ## Known Limitations
 
