@@ -47,17 +47,10 @@ function M.generate()
 		local root = state.get().root or vim.fn.getcwd()
 
 		for _, note in ipairs(all_notes) do
-			-- Anchor: `file:line` or `file:start-end`, with (deleted) for old-side
+			-- Anchor: `filepath` with (deleted) for old-side
 			local side = note.side or "new"
 			local side_suffix = side == "old" and " (deleted)" or ""
-			if note.line_start == note.line_end then
-				table.insert(lines, "`" .. note.filepath .. ":" .. note.line_start .. side_suffix .. "`")
-			else
-				table.insert(
-					lines,
-					"`" .. note.filepath .. ":" .. note.line_start .. "-" .. note.line_end .. side_suffix .. "`"
-				)
-			end
+			table.insert(lines, "`" .. note.filepath .. side_suffix .. "`")
 			table.insert(lines, "")
 
 			-- Code block (visual selection, or auto-read from disk)
@@ -67,11 +60,11 @@ function M.generate()
 			end
 
 			if code and code ~= "" then
-				table.insert(lines, "````text")
+				table.insert(lines, "```text {" .. note.line_start .. "," .. note.line_end .. "}")
 				for code_line in (code .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, code_line)
 				end
-				table.insert(lines, "````")
+				table.insert(lines, "```")
 				table.insert(lines, "")
 			end
 
@@ -141,7 +134,9 @@ function M.save_direct()
 
 	if vim.fn.filereadable(full_path) == 1 then
 		vim.notify(
-			"codereview: " .. full_path .. " already exists — use the save prompt (default keymap: <leader>s) to overwrite or rename",
+			"codereview: "
+				.. full_path
+				.. " already exists — use the save prompt (default keymap: <leader>s) to overwrite or rename",
 			vim.log.levels.WARN
 		)
 		return

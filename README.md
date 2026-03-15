@@ -172,21 +172,19 @@ To enable a save shortcut add `keymaps = { save = "<C-s>" }` to your setup.
 ## `review-YYYY-MM-DD.md` Format
 
 ````markdown
-# Code Review — 2026-03-14
+# Review 2026-03-14
 
-## `src/foo.js`
+`src/foo.js`
 
-### Line 42
-
-```javascript
+```text {0,1}
 const result = a + b;
 ```
 
-> revisit this calculation
+revisit this calculation
 
-### Lines 67-72
+`hendlerUser.js`
 
-```javascript
+```text {67,72}
 function handleUser(user) {
   if (user.name) {
     return user.name;
@@ -194,7 +192,7 @@ function handleUser(user) {
 }
 ```
 
-> add a null check for `user` before accessing `.name`
+Add a null check for `user` before accessing `.name`
 ````
 
 ## Current Limitations
