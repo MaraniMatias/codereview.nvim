@@ -28,12 +28,20 @@ local function window_belongs_to_tab(win, tab)
   return vim.api.nvim_win_get_tabpage(win) == tab
 end
 
+local function is_split_mode()
+  return config.options.diff_view == "split"
+end
+
 local function has_layout_state(s)
   return s.tab ~= nil
     or s.windows.explorer ~= nil
     or s.windows.diff ~= nil
+    or s.windows.diff_old ~= nil
+    or s.windows.diff_new ~= nil
     or s.buffers.explorer ~= nil
     or s.buffers.diff ~= nil
+    or s.buffers.diff_old ~= nil
+    or s.buffers.diff_new ~= nil
 end
 
 local function clear_lifecycle_autocmds()
@@ -85,6 +93,30 @@ local function create_diff_buffer()
   return diff_buf
 end
 
+local function create_diff_old_buffer()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, "codereview://diff-old")
+  set_buffer_options(buf, {
+    buftype = "acwrite",
+    bufhidden = "wipe",
+    swapfile = false,
+    modifiable = false,
+  })
+  return buf
+end
+
+local function create_diff_new_buffer()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, "codereview://diff-new")
+  set_buffer_options(buf, {
+    buftype = "acwrite",
+    bufhidden = "wipe",
+    swapfile = false,
+    modifiable = false,
+  })
+  return buf
+end
+
 local function configure_panel_window(win)
   set_window_options(win, {
     wrap = false,
@@ -97,10 +129,26 @@ local function compute_layout()
   local total_w = vim.o.columns
   local total_h = vim.o.lines - vim.o.cmdheight - (vim.o.laststatus > 0 and 1 or 0)
   local exp_w = cfg.explorer_width
-  -- each bordered float uses 1 col on each side; place diff right after explorer's right border
+  local h = total_h - 2  -- top + bottom border
+
+  if is_split_mode() then
+    -- 3-panel: explorer | diff_old | diff_new
+    local diff_area_col = exp_w + 2
+    local diff_area_w = total_w - diff_area_col
+    local half_w = math.floor((diff_area_w - 2) / 2) -- -2 for border between panels
+    local old_w = math.max(half_w, 10)
+    local new_col = diff_area_col + old_w + 2
+    local new_w = math.max(total_w - new_col - 2, 10)
+    return {
+      explorer = { row = 0, col = 0, width = math.max(exp_w, 10), height = math.max(h, 5) },
+      diff_old = { row = 0, col = diff_area_col, width = old_w, height = math.max(h, 5) },
+      diff_new = { row = 0, col = new_col, width = new_w, height = math.max(h, 5) },
+    }
+  end
+
+  -- Unified: 2-panel explorer | diff
   local diff_col = exp_w + 2
   local diff_w = total_w - diff_col - 2
-  local h = total_h - 2  -- top + bottom border
   return {
     explorer = { row = 0, col = 0, width = math.max(exp_w, 10), height = math.max(h, 5) },
     diff = { row = 0, col = diff_col, width = math.max(diff_w, 20), height = math.max(h, 5) },
@@ -181,7 +229,14 @@ local function restore_blocked_layout()
   end
 
   local explorer_missing = not is_valid_window(s.windows.explorer) or not is_valid_buffer(s.buffers.explorer)
-  local diff_missing = not is_valid_window(s.windows.diff) or not is_valid_buffer(s.buffers.diff)
+
+  local diff_missing
+  if is_split_mode() then
+    diff_missing = not is_valid_window(s.windows.diff_old) or not is_valid_buffer(s.buffers.diff_old)
+      or not is_valid_window(s.windows.diff_new) or not is_valid_buffer(s.buffers.diff_new)
+  else
+    diff_missing = not is_valid_window(s.windows.diff) or not is_valid_buffer(s.buffers.diff)
+  end
 
   if not explorer_missing and not diff_missing then
     return M.is_open()
@@ -225,27 +280,50 @@ local function restore_blocked_layout()
     end
 
     if diff_missing then
-      local diff_buf = create_diff_buffer()
-      local diff_win = vim.api.nvim_open_win(diff_buf, false, {
-        relative = "editor",
-        row = dims.diff.row,
-        col = dims.diff.col,
-        width = dims.diff.width,
-        height = dims.diff.height,
-        style = "minimal",
-        border = cfg.border,
-        title = cfg.diff_title,
-        title_pos = "center",
-        focusable = true,
-        zindex = 10,
-      })
-
-      configure_panel_window(diff_win)
-
-      s.windows.diff = diff_win
-      s.buffers.diff = diff_buf
-
-      diff_view.setup_keymaps(diff_buf)
+      if is_split_mode() then
+        local old_buf = create_diff_old_buffer()
+        local old_win = vim.api.nvim_open_win(old_buf, false, {
+          relative = "editor",
+          row = dims.diff_old.row, col = dims.diff_old.col,
+          width = dims.diff_old.width, height = dims.diff_old.height,
+          style = "minimal", border = cfg.border,
+          title = cfg.diff_title, title_pos = "center",
+          focusable = true, zindex = 10,
+        })
+        local new_buf = create_diff_new_buffer()
+        local new_win = vim.api.nvim_open_win(new_buf, false, {
+          relative = "editor",
+          row = dims.diff_new.row, col = dims.diff_new.col,
+          width = dims.diff_new.width, height = dims.diff_new.height,
+          style = "minimal", border = cfg.border,
+          title = cfg.diff_title, title_pos = "center",
+          focusable = true, zindex = 10,
+        })
+        for _, w in ipairs({ old_win, new_win }) do
+          configure_panel_window(w)
+          set_window_options(w, { scrollbind = true, cursorbind = true })
+        end
+        s.windows.diff_old = old_win
+        s.windows.diff_new = new_win
+        s.buffers.diff_old = old_buf
+        s.buffers.diff_new = new_buf
+        diff_view.setup_keymaps(old_buf)
+        diff_view.setup_keymaps(new_buf)
+      else
+        local diff_buf = create_diff_buffer()
+        local diff_win = vim.api.nvim_open_win(diff_buf, false, {
+          relative = "editor",
+          row = dims.diff.row, col = dims.diff.col,
+          width = dims.diff.width, height = dims.diff.height,
+          style = "minimal", border = cfg.border,
+          title = cfg.diff_title, title_pos = "center",
+          focusable = true, zindex = 10,
+        })
+        configure_panel_window(diff_win)
+        s.windows.diff = diff_win
+        s.buffers.diff = diff_buf
+        diff_view.setup_keymaps(diff_buf)
+      end
       if #s.files > 0 then
         diff_view.show_file(s.current_file_idx)
       end
@@ -260,7 +338,7 @@ local function restore_blocked_layout()
     return false
   end
 
-  setup_lifecycle_autocmds(active_session_id, s.windows.explorer, s.windows.diff, s.buffers.explorer, s.buffers.diff)
+  M._setup_current_lifecycle_autocmds()
   return M.is_open()
 end
 
@@ -307,7 +385,7 @@ local function schedule_external_teardown(session_id)
   end)
 end
 
-setup_lifecycle_autocmds = function(session_id, explorer_win, diff_win, explorer_buf, diff_buf)
+setup_lifecycle_autocmds = function(session_id, wins, bufs)
   clear_lifecycle_autocmds()
 
   vim.api.nvim_create_autocmd("TabClosed", {
@@ -317,7 +395,7 @@ setup_lifecycle_autocmds = function(session_id, explorer_win, diff_win, explorer
     end,
   })
 
-  for _, win in ipairs({ explorer_win, diff_win }) do
+  for _, win in ipairs(wins) do
     vim.api.nvim_create_autocmd("WinClosed", {
       group = lifecycle_group,
       pattern = tostring(win),
@@ -327,7 +405,7 @@ setup_lifecycle_autocmds = function(session_id, explorer_win, diff_win, explorer
     })
   end
 
-  for _, buf in ipairs({ explorer_buf, diff_buf }) do
+  for _, buf in ipairs(bufs) do
     vim.api.nvim_create_autocmd("BufWipeout", {
       group = lifecycle_group,
       buffer = buf,
@@ -345,7 +423,24 @@ setup_lifecycle_autocmds = function(session_id, explorer_win, diff_win, explorer
   })
 end
 
--- Create the two-panel layout: explorer (left) + diff (right) as floating windows
+-- Helper to collect current windows/buffers and setup lifecycle autocmds
+function M._setup_current_lifecycle_autocmds()
+  local s = state.get()
+  local wins = { s.windows.explorer }
+  local bufs = { s.buffers.explorer }
+  if is_split_mode() then
+    table.insert(wins, s.windows.diff_old)
+    table.insert(wins, s.windows.diff_new)
+    table.insert(bufs, s.buffers.diff_old)
+    table.insert(bufs, s.buffers.diff_new)
+  else
+    table.insert(wins, s.windows.diff)
+    table.insert(bufs, s.buffers.diff)
+  end
+  setup_lifecycle_autocmds(active_session_id, wins, bufs)
+end
+
+-- Create the panel layout as floating windows
 function M.create()
   local s = state.get()
   local cfg = config.options
@@ -384,45 +479,92 @@ function M.create()
     focusable = true,
     zindex = 10,
   })
+  configure_panel_window(explorer_win)
+  s.windows.explorer = explorer_win
+  s.buffers.explorer = explorer_buf
 
-  -- Create diff float (right panel)
-  local diff_buf = create_diff_buffer()
-  local diff_win = vim.api.nvim_open_win(diff_buf, true, {
-    relative = "editor",
-    row = dims.diff.row,
-    col = dims.diff.col,
-    width = dims.diff.width,
-    height = dims.diff.height,
-    style = "minimal",
-    border = cfg.border,
-    title = cfg.diff_title,
-    title_pos = "center",
-    focusable = true,
-    zindex = 10,
-  })
+  local result = {
+    explorer_win = explorer_win,
+    explorer_buf = explorer_buf,
+  }
 
-  -- Window options
-  for _, win in ipairs({ explorer_win, diff_win }) do
-    configure_panel_window(win)
+  if is_split_mode() then
+    -- Split mode: create two diff panels (old + new)
+    local diff_old_buf = create_diff_old_buffer()
+    local diff_old_win = vim.api.nvim_open_win(diff_old_buf, false, {
+      relative = "editor",
+      row = dims.diff_old.row,
+      col = dims.diff_old.col,
+      width = dims.diff_old.width,
+      height = dims.diff_old.height,
+      style = "minimal",
+      border = cfg.border,
+      title = cfg.diff_title,
+      title_pos = "center",
+      focusable = true,
+      zindex = 10,
+    })
+
+    local diff_new_buf = create_diff_new_buffer()
+    local diff_new_win = vim.api.nvim_open_win(diff_new_buf, true, {
+      relative = "editor",
+      row = dims.diff_new.row,
+      col = dims.diff_new.col,
+      width = dims.diff_new.width,
+      height = dims.diff_new.height,
+      style = "minimal",
+      border = cfg.border,
+      title = cfg.diff_title,
+      title_pos = "center",
+      focusable = true,
+      zindex = 10,
+    })
+
+    for _, win in ipairs({ diff_old_win, diff_new_win }) do
+      configure_panel_window(win)
+      set_window_options(win, { scrollbind = true, cursorbind = true })
+    end
+
+    s.windows.diff_old = diff_old_win
+    s.windows.diff_new = diff_new_win
+    s.buffers.diff_old = diff_old_buf
+    s.buffers.diff_new = diff_new_buf
+
+    result.diff_old_win = diff_old_win
+    result.diff_old_buf = diff_old_buf
+    result.diff_new_win = diff_new_win
+    result.diff_new_buf = diff_new_buf
+  else
+    -- Unified mode: single diff panel
+    local diff_buf = create_diff_buffer()
+    local diff_win = vim.api.nvim_open_win(diff_buf, true, {
+      relative = "editor",
+      row = dims.diff.row,
+      col = dims.diff.col,
+      width = dims.diff.width,
+      height = dims.diff.height,
+      style = "minimal",
+      border = cfg.border,
+      title = cfg.diff_title,
+      title_pos = "center",
+      focusable = true,
+      zindex = 10,
+    })
+    configure_panel_window(diff_win)
+
+    s.windows.diff = diff_win
+    s.buffers.diff = diff_buf
+
+    result.diff_win = diff_win
+    result.diff_buf = diff_buf
   end
 
-  -- Store IDs in state
-  s.windows.explorer = explorer_win
-  s.windows.diff = diff_win
-  s.buffers.explorer = explorer_buf
-  s.buffers.diff = diff_buf
-
-  setup_lifecycle_autocmds(active_session_id, explorer_win, diff_win, explorer_buf, diff_buf)
+  M._setup_current_lifecycle_autocmds()
 
   -- Focus explorer
   vim.api.nvim_set_current_win(explorer_win)
 
-  return {
-    explorer_win = explorer_win,
-    explorer_buf = explorer_buf,
-    diff_win = diff_win,
-    diff_buf = diff_buf,
-  }
+  return result
 end
 
 -- Recompute and update float sizes (called on VimResized)
@@ -437,13 +579,24 @@ function M.resize()
     width = dims.explorer.width,
     height = dims.explorer.height,
   })
-  vim.api.nvim_win_set_config(s.windows.diff, {
-    relative = "editor",
-    row = dims.diff.row,
-    col = dims.diff.col,
-    width = dims.diff.width,
-    height = dims.diff.height,
-  })
+  if is_split_mode() then
+    vim.api.nvim_win_set_config(s.windows.diff_old, {
+      relative = "editor",
+      row = dims.diff_old.row, col = dims.diff_old.col,
+      width = dims.diff_old.width, height = dims.diff_old.height,
+    })
+    vim.api.nvim_win_set_config(s.windows.diff_new, {
+      relative = "editor",
+      row = dims.diff_new.row, col = dims.diff_new.col,
+      width = dims.diff_new.width, height = dims.diff_new.height,
+    })
+  else
+    vim.api.nvim_win_set_config(s.windows.diff, {
+      relative = "editor",
+      row = dims.diff.row, col = dims.diff.col,
+      width = dims.diff.width, height = dims.diff.height,
+    })
+  end
 end
 
 -- Close the layout and clean up
@@ -461,7 +614,7 @@ function M.close(force)
 
   require("codereview.ui.diff_view").clear()
 
-  for _, key in ipairs({ "diff", "explorer" }) do
+  for _, key in ipairs({ "diff", "diff_old", "diff_new", "explorer" }) do
     local win = s.windows[key]
     if is_valid_window(win) then
       pcall(vim.api.nvim_win_close, win, true)
@@ -492,7 +645,11 @@ function M.close(force)
   end
 
   if not closed and force then
-    closed = dismantle_review_tab(review_tab, { s.buffers.explorer, s.buffers.diff })
+    local bufs_to_dismantle = { s.buffers.explorer }
+    if s.buffers.diff then table.insert(bufs_to_dismantle, s.buffers.diff) end
+    if s.buffers.diff_old then table.insert(bufs_to_dismantle, s.buffers.diff_old) end
+    if s.buffers.diff_new then table.insert(bufs_to_dismantle, s.buffers.diff_new) end
+    closed = dismantle_review_tab(review_tab, bufs_to_dismantle)
   end
 
   if not closed then
@@ -596,11 +753,7 @@ function M.is_open()
     return false
   end
 
-  if not is_valid_window(s.windows.explorer) or not is_valid_window(s.windows.diff) then
-    return false
-  end
-
-  if not is_valid_buffer(s.buffers.explorer) or not is_valid_buffer(s.buffers.diff) then
+  if not is_valid_window(s.windows.explorer) or not is_valid_buffer(s.buffers.explorer) then
     return false
   end
 
@@ -608,8 +761,26 @@ function M.is_open()
     return false
   end
 
-  if not window_belongs_to_tab(s.windows.diff, s.tab) then
-    return false
+  if is_split_mode() then
+    if not is_valid_window(s.windows.diff_old) or not is_valid_buffer(s.buffers.diff_old) then
+      return false
+    end
+    if not is_valid_window(s.windows.diff_new) or not is_valid_buffer(s.buffers.diff_new) then
+      return false
+    end
+    if not window_belongs_to_tab(s.windows.diff_old, s.tab) then
+      return false
+    end
+    if not window_belongs_to_tab(s.windows.diff_new, s.tab) then
+      return false
+    end
+  else
+    if not is_valid_window(s.windows.diff) or not is_valid_buffer(s.buffers.diff) then
+      return false
+    end
+    if not window_belongs_to_tab(s.windows.diff, s.tab) then
+      return false
+    end
   end
 
   return true
@@ -623,11 +794,17 @@ function M.focus_explorer()
   end
 end
 
--- Focus the diff window
+-- Focus the diff window (in split mode, focus the new/right panel)
 function M.focus_diff()
   local s = state.get()
-  if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
-    vim.api.nvim_set_current_win(s.windows.diff)
+  if is_split_mode() then
+    if s.windows.diff_new and vim.api.nvim_win_is_valid(s.windows.diff_new) then
+      vim.api.nvim_set_current_win(s.windows.diff_new)
+    end
+  else
+    if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
+      vim.api.nvim_set_current_win(s.windows.diff)
+    end
   end
 end
 

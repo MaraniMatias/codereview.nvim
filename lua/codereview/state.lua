@@ -17,16 +17,41 @@ local initial_state = {
   notes_visible = true, -- true if virtual text is shown in diff
   windows = {          -- window IDs
     explorer = nil,
-    diff = nil,
+    diff = nil,        -- unified mode
+    diff_old = nil,    -- split mode (old/left side)
+    diff_new = nil,    -- split mode (new/right side)
   },
   buffers = {          -- buffer IDs
     explorer = nil,
-    diff = nil,
+    diff = nil,        -- unified mode
+    diff_old = nil,    -- split mode (old/left side)
+    diff_new = nil,    -- split mode (new/right side)
   },
   ui = {
     explorer = {
       actions_by_line = {},
       last_preview_key = nil,
+    },
+    diff_old = {       -- split mode: old/left side display state
+      lines = {},
+      line_types = {},
+      line_map = {},
+      new_to_display = {},
+      all_lines = {},
+      all_line_types = {},
+      all_line_map = {},
+      all_new_to_display = {},
+      all_old_line_map = {},
+      all_old_to_display = {},
+      all_line_type_map = {},
+      old_line_map = {},
+      old_to_display = {},
+      line_type_map = {},
+      visible_extmarks = {},
+      visible_until = 0,
+      is_truncated = false,
+      truncation_line = nil,
+      pending_jump_lnum = nil,
     },
     diff = {
       lines = {},

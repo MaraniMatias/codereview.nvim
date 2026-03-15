@@ -9,7 +9,7 @@ Inline code review on any `git diff`, right inside Neovim.
 
 ## Features
 
-**Review workflow** — Two-panel layout (explorer + unified diff), markdown export with prompt flow or direct `:W` save, `git difftool --dir-diff` integration.
+**Review workflow** — Two-panel layout (explorer + diff) with unified or side-by-side split view, markdown export with prompt flow or direct `:W` save, `git difftool --dir-diff` integration.
 
 **Inline notes** — Smart add/edit on any diff line, visual-selection notes with captured code context, virtual text with visibility toggle, Telescope picker for all notes.
 
@@ -56,6 +56,7 @@ Add a null check for `user` before accessing `.name`
 ```lua
 {
   "MaraniMatias/codereview.nvim",
+  event = "VeryLazy",
   dependencies = {
     "nvim-telescope/telescope.nvim", -- optional: enables notes picker (<Space>n)
     "nvim-tree/nvim-web-devicons",   -- optional: file icons in the explorer
@@ -186,7 +187,7 @@ require("codereview").setup({
 
 ```lua
 require("codereview").setup({
-  diff_view = "unified",            -- "split" is planned, not implemented yet
+  diff_view = "unified",            -- "unified" | "split" (side-by-side)
   explorer_width = 30,              -- width of the file explorer panel
   border = "rounded",               -- "rounded" | "single" | "double" | "solid" | "none"
   explorer_title = " Files ",
@@ -220,11 +221,20 @@ require("codereview").setup({
 })
 ```
 
+### Split (side-by-side) view
+
+Set `diff_view = "split"` to display diffs side by side — old file on the left, new file on the right. Both panels scroll together via Neovim's `scrollbind`. All keybindings, notes, and pagination work the same in both views.
+
+```lua
+require("codereview").setup({
+  diff_view = "split",
+})
+```
+
 Large diffs keep the current behavior when they fit within `max_diff_lines`. When a diff exceeds that limit, CodeReview renders the first slice, shows a truncation sentinel at the bottom, and each `load_more_diff` action reveals another `diff_page_size` lines.
 
 ## Known Limitations
 
-- `diff_view = "split"` is not implemented yet
 - Notes are session-only; closing CodeReview discards in-memory notes unless you export the review
 - Note anchors are based on new-file line numbers
 

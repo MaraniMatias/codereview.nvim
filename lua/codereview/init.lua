@@ -37,7 +37,15 @@ local function open_layout(message)
 
   local wins = layout.create()
   explorer.setup_keymaps(wins.explorer_buf)
-  diff_view.setup_keymaps(wins.diff_buf)
+  if wins.diff_buf then
+    diff_view.setup_keymaps(wins.diff_buf)
+  end
+  if wins.diff_old_buf then
+    diff_view.setup_keymaps(wins.diff_old_buf)
+  end
+  if wins.diff_new_buf then
+    diff_view.setup_keymaps(wins.diff_new_buf)
+  end
   explorer.render()
 
   if #s.files > 0 then
@@ -50,14 +58,25 @@ end
 
 local function set_diff_message(message)
   local s = state.get()
-  local buf = s.buffers.diff
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
-  require("codereview.ui.diff_view").clear()
-  require("codereview.notes.virtual").clear_extmarks(buf)
-  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { message })
-  vim.api.nvim_set_option_value("modified", false, { buf = buf })
-  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  local diff_view = require("codereview.ui.diff_view")
+  local virt = require("codereview.notes.virtual")
+  diff_view.clear()
+
+  local function set_msg(buf)
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+    virt.clear_extmarks(buf)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { message })
+    vim.api.nvim_set_option_value("modified", false, { buf = buf })
+    vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  end
+
+  if diff_view.is_split_mode() then
+    set_msg(s.buffers.diff_old)
+    set_msg(s.buffers.diff_new)
+  else
+    set_msg(s.buffers.diff)
+  end
 end
 
 local function _add_candidate(candidates, seen, path)
@@ -175,7 +194,8 @@ function M.open(args)
         mark_binary_files(files, binaries)
         s.files = normalize_files(files)
         s.current_file_idx = 1
-        open_layout("codereview: " .. #files .. " changed file(s) | " .. args_display)
+        local view_label = config.options.diff_view == "split" and " [split]" or ""
+        open_layout("codereview" .. view_label .. ": " .. #files .. " changed file(s) | " .. args_display)
       end)
     end)
   end)
