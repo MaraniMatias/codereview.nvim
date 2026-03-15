@@ -36,6 +36,7 @@ local initial_state = {
       all_line_types = {},
       all_line_map = {},
       all_new_to_display = {},
+      visible_extmarks = {},
       visible_until = 0,
       is_truncated = false,
       truncation_line = nil,

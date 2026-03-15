@@ -14,6 +14,7 @@ local function ensure_diff_state()
     all_line_types = {},
     all_line_map = {},
     all_new_to_display = {},
+    visible_extmarks = {}, -- visible_extmarks[buf][filepath][line_start] = extmark_id
     visible_until = 0,
     is_truncated = false,
     truncation_line = nil,
@@ -70,6 +71,7 @@ function M.reset()
   diff.all_line_types = {}
   diff.all_line_map = {}
   diff.all_new_to_display = {}
+  diff.visible_extmarks = {}
   diff.visible_until = 0
   diff.is_truncated = false
   diff.truncation_line = nil
@@ -101,6 +103,53 @@ end
 function M.set_pending_jump(new_lnum)
   local diff = ensure_diff_state()
   diff.pending_jump_lnum = new_lnum
+end
+
+function M.get_visible_extmarks(buf)
+  local diff = ensure_diff_state()
+  if buf == nil then
+    return diff.visible_extmarks
+  end
+
+  diff.visible_extmarks[buf] = diff.visible_extmarks[buf] or {}
+  return diff.visible_extmarks[buf]
+end
+
+function M.set_visible_extmarks(buf, filepath, extmarks)
+  if buf == nil or filepath == nil then
+    return
+  end
+
+  local buf_extmarks = M.get_visible_extmarks(buf)
+  if extmarks and next(extmarks) ~= nil then
+    buf_extmarks[filepath] = extmarks
+  else
+    buf_extmarks[filepath] = nil
+  end
+end
+
+function M.clear_visible_extmarks(buf, filepath)
+  local diff = ensure_diff_state()
+
+  if buf == nil then
+    diff.visible_extmarks = {}
+    return
+  end
+
+  if filepath == nil then
+    diff.visible_extmarks[buf] = nil
+    return
+  end
+
+  local buf_extmarks = diff.visible_extmarks[buf]
+  if not buf_extmarks then
+    return
+  end
+
+  buf_extmarks[filepath] = nil
+  if next(buf_extmarks) == nil then
+    diff.visible_extmarks[buf] = nil
+  end
 end
 
 return M

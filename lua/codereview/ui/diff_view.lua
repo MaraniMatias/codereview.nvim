@@ -340,7 +340,7 @@ function M.jump_to_line(new_lnum)
 
   local target_display = display.all_new_to_display[new_lnum] or find_best_display_line(display.all_new_to_display, new_lnum)
   if not target_display then
-    diff_state.set_pending_jump(new_lnum)
+    diff_state.set_pending_jump(nil)
     return
   end
 

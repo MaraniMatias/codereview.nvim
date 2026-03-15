@@ -8,7 +8,6 @@ local state = require("codereview.state")
 --   line_end = 42,
 --   code = "const result = a + b;",
 --   text = "revisar este cálculo",
---   extmark_id = nil,
 -- }
 
 -- Add or update a note
@@ -24,7 +23,6 @@ function M.set(filepath, line_start, line_end, code, text)
     line_end = line_end or line_start,
     code = code or "",
     text = text,
-    extmark_id = nil,
   }
   s.notes_dirty = true
   return s.notes[filepath][key]
