@@ -96,6 +96,7 @@ Add this to `~/.gitconfig`:
 ```ini
 [difftool "codereview"]
     cmd = nvim -c "lua require('codereview').difftool('$LOCAL', '$REMOTE')"
+    trustExitCode = true
 [difftool]
     prompt = false
 ```
@@ -105,6 +106,7 @@ Or use the wrapper shipped in `bin/codereview`:
 ```ini
 [difftool "codereview"]
     cmd = /path/to/codereview/bin/codereview "$LOCAL" "$REMOTE"
+    trustExitCode = true
 ```
 
 The wrapper automatically captures `$MERGED` from git's environment to build a stable, repo-relative file identity — preventing note collisions when multiple files share the same basename (e.g. `src/utils/helpers.js` vs `src/components/helpers.js`).

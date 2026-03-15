@@ -221,6 +221,7 @@ function M.difftool(local_path, remote_path, merged_path)
   end
 
   if local_is_dir and remote_is_dir then
+    s.single_file_difftool = false
     s.local_dir = local_path
     s.remote_dir = remote_path
     git.get_repo_root(remote_path, function(root)
@@ -228,6 +229,7 @@ function M.difftool(local_path, remote_path, merged_path)
       git.scan_dir_diff(local_path, remote_path, finish)
     end)
   else
+    s.single_file_difftool = true
     -- Resolve merged path: explicit arg > CODEREVIEW_MERGED env > MERGED env (set by git)
     local merged = (merged_path and merged_path ~= "" and merged_path)
       or (vim.env.CODEREVIEW_MERGED ~= "" and vim.env.CODEREVIEW_MERGED or nil)

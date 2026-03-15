@@ -13,6 +13,7 @@ local initial_state = {
   current_file_idx = 1,
   notes = {},          -- notes[filepath][line] = NoteEntry
   notes_dirty = false, -- true if there are unsaved notes
+  single_file_difftool = false, -- true when git difftool runs without --dir-diff
   notes_visible = true, -- true if virtual text is shown in diff
   windows = {          -- window IDs
     explorer = nil,

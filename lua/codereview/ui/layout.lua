@@ -277,6 +277,12 @@ local function schedule_external_teardown(session_id)
       return
     end
 
+    -- A :wq save is in progress – let the save callback handle the close.
+    if write_in_progress then
+      teardown_scheduled = false
+      return
+    end
+
     teardown_scheduled = false
 
     local s = state.get()
@@ -468,7 +474,10 @@ function M.close(force)
     -- QuitPre handlers on the plugin buffers return early instead
     -- of aborting the quit.  finalize_close resets the flag, so
     -- call it AFTER qa (it is only reached if qa fails for some reason).
-    pcall(vim.cmd, force and "qa!" or "qa")
+    -- In single-file difftool mode, use cq! (exit code 1) so git stops
+    -- iterating over remaining files.
+    local exit_cmd = s.single_file_difftool and "cq!" or (force and "qa!" or "qa")
+    pcall(vim.cmd, exit_cmd)
     finalize_close(prev_win)
     return true
   end
@@ -519,9 +528,15 @@ function M.setup_write_handlers(buf)
       write_in_progress = true
       require("codereview.review.exporter").save_with_prompt(function(success)
         write_in_progress = false
-        if success and pending_close_after_save then
+        if pending_close_after_save then
           pending_close_after_save = false
-          M.close(false)
+          if success then
+            M.close(true)
+          elseif not M.is_open() then
+            -- Layout was destroyed while the prompt was open (quit
+            -- proceeded despite abort attempt). Clean up state.
+            M.close(true)
+          end
         end
       end)
       vim.api.nvim_set_option_value("modified", false, { buf = buf })
