@@ -23,6 +23,7 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 
 - Neovim >= 0.9
 - `telescope.nvim` optional, for the notes picker
+- `nvim-web-devicons` optional, for file type icons in the explorer
 
 ## Installation
 

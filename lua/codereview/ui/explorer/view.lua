@@ -29,7 +29,7 @@ function M.apply_highlights(buf, lines, actions_by_line)
             hl = "DiffAdd"
           elseif status == "D" then
             hl = "DiffDelete"
-          elseif status == "M" then
+          elseif status == "M" or status == "R" then
             hl = "DiffChange"
           end
         end
