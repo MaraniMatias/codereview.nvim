@@ -98,42 +98,44 @@ function M.save_with_prompt()
 	local default_name = os.date(cfg.review.default_filename)
 	local save_dir = cfg.review.path or s.root or vim.fn.getcwd()
 
-	vim.ui.input({
-		prompt = "Save review as: ",
-		default = default_name,
-	}, function(filename)
-		if not filename or filename == "" then
-			return
-		end
-
-		if filename:sub(1, 1) == "/" then
-			vim.notify(
-				"codereview: absolute paths not allowed here — set review.path in your config instead",
-				vim.log.levels.ERROR
-			)
-			return
-		end
-
-		local full_path = save_dir .. "/" .. filename
-
-		if vim.fn.filereadable(full_path) == 1 then
-			vim.ui.input({
-				prompt = full_path .. " already exists. Overwrite? (y/N): ",
-				default = "N",
-			}, function(answer)
-				if answer and answer:lower() == "y" then
-					if M.save(full_path) then
-						vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
-					end
-				else
-					vim.notify("Save cancelled", vim.log.levels.INFO)
-				end
-			end)
-		else
-			if M.save(full_path) then
-				vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
+	vim.schedule(function()
+		vim.ui.input({
+			prompt = "Save review as: ",
+			default = default_name,
+		}, function(filename)
+			if not filename or filename == "" then
+				return
 			end
-		end
+
+			if filename:sub(1, 1) == "/" then
+				vim.notify(
+					"codereview: absolute paths not allowed here — set review.path in your config instead",
+					vim.log.levels.ERROR
+				)
+				return
+			end
+
+			local full_path = save_dir .. "/" .. filename
+
+			if vim.fn.filereadable(full_path) == 1 then
+				vim.ui.input({
+					prompt = full_path .. " already exists. Overwrite? (y/N): ",
+					default = "N",
+				}, function(answer)
+					if answer and answer:lower() == "y" then
+						if M.save(full_path) then
+							vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
+						end
+					else
+						vim.notify("Save cancelled", vim.log.levels.INFO)
+					end
+				end)
+			else
+				if M.save(full_path) then
+					vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
+				end
+			end
+		end)
 	end)
 end
 

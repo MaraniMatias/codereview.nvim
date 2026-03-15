@@ -218,4 +218,78 @@ function M.save()
   require("codereview.review.exporter").save_with_prompt()
 end
 
+function M.show_help()
+  local km = require("codereview.config").options.keymaps
+  local lines = {
+    " CodeReview — Keymaps",
+    " ──────────────────────────────",
+    " Explorer",
+    " <CR> / l      Open file in diff",
+    " h / " .. (km.toggle_notes or "za") .. "         Toggle notes",
+    " " .. (km.next_file or "]f") .. " / " .. (km.prev_file or "[f") .. "         Next / prev file",
+    " " .. (km.refresh or "R") .. "             Refresh",
+    " " .. (km.quit or "q") .. "             Quit",
+    " " .. (km.cycle_focus or "<Tab>") .. "          Cycle focus",
+    " ?             This help",
+    " ──────────────────────────────",
+    " Diff view",
+    " " .. (km.note or "n") .. "             Add note",
+    " " .. (km.next_note or "]n") .. " / " .. (km.prev_note or "[n") .. "         Next / prev note",
+    " " .. (km.next_file or "]f") .. " / " .. (km.prev_file or "[f") .. "         Next / prev file",
+    " " .. (km.load_more_diff or "L") .. "             Load more diff",
+    " " .. (km.notes_picker or "<Space>n") .. "       Notes picker",
+    " " .. (km.toggle_virtual_text or "<leader>uh") .. "    Toggle virtual text",
+    " ──────────────────────────────",
+    " Note editor",
+    " w             Save note",
+    " q             Discard",
+    " <Esc>         Save or discard?",
+    " ──────────────────────────────",
+    " Press any key to close",
+  }
+  if km.save then
+    table.insert(lines, 10, " " .. km.save .. "             Save review")
+  end
+
+  local width = 36
+  local height = #lines
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
+
+  local ui = vim.api.nvim_list_uis()[1]
+  local row = math.floor((ui.height - height) / 2)
+  local col = math.floor((ui.width - width) / 2)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+  })
+
+  local ns = vim.api.nvim_create_namespace("codereview_help")
+  for lnum, line in ipairs(lines) do
+    local row0 = lnum - 1
+    if lnum == 1 then
+      vim.api.nvim_buf_add_highlight(buf, ns, "Title", row0, 0, -1)
+    elseif line:match("^%s*─") then
+      vim.api.nvim_buf_add_highlight(buf, ns, "Comment", row0, 0, -1)
+    elseif line == " Explorer" or line == " Diff view" or line == " Note editor" then
+      vim.api.nvim_buf_add_highlight(buf, ns, "Special", row0, 0, -1)
+    elseif lnum == #lines then
+      vim.api.nvim_buf_add_highlight(buf, ns, "Comment", row0, 0, -1)
+    end
+  end
+
+  local close = function() vim.api.nvim_win_close(win, true) end
+  vim.keymap.set("n", "<Esc>", close, { buffer = buf, nowait = true, silent = true })
+  vim.keymap.set("n", "q", close, { buffer = buf, nowait = true, silent = true })
+  vim.keymap.set("n", "?", close, { buffer = buf, nowait = true, silent = true })
+end
+
 return M

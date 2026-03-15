@@ -20,6 +20,7 @@ function M.setup(buf)
   if km.save then
     vim.keymap.set("n", km.save, actions.save, opts)
   end
+  vim.keymap.set("n", "?", actions.show_help, opts)
 
   layout.setup_quit_handlers(buf)
   layout.setup_write_handlers(buf)
