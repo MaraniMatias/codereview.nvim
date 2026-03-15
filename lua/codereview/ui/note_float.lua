@@ -114,7 +114,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   vim.api.nvim_buf_set_lines(note_buf, 0, -1, false, note_lines)
 
   -- Create note floating window (focused)
-  local note_title = existing_text and " Editar Nota " or " Nota "
+  local note_title = existing_text and " Edit Note " or " Note "
   local note_win = vim.api.nvim_open_win(note_buf, true, {
     relative = "editor",
     width = width,

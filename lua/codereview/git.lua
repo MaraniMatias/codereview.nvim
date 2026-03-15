@@ -81,7 +81,10 @@ end
 local function _cleanup_files(paths)
   for _, path in ipairs(paths or {}) do
     if path and path ~= "" then
-      pcall(vim.fn.delete, path)
+      local ok = pcall(vim.fn.delete, path)
+      if not ok then
+        vim.notify("codereview: failed to clean up temp file: " .. path, vim.log.levels.WARN)
+      end
     end
   end
 end

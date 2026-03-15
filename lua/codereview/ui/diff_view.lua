@@ -10,7 +10,15 @@ local diff_request_id = 0
 local _loading_idx = nil   -- tracks which file idx is currently being loaded
 local treesitter_max_lines = 5000
 local _ts_lang_cache = {}   -- buf -> lang string | false
-local _hl_cache = {}        -- buf -> concat key string
+local _hl_cache = {}        -- buf -> hash key string
+
+-- Clean up caches when a buffer is deleted to prevent stale entries
+vim.api.nvim_create_autocmd("BufDelete", {
+  callback = function(ev)
+    _ts_lang_cache[ev.buf] = nil
+    _hl_cache[ev.buf] = nil
+  end,
+})
 
 local function update_diff_title(file)
   if not file then return end
@@ -359,8 +367,17 @@ function M._update_treesitter(buf, filepath, visible_until)
   end
 end
 
+local function _hash_line_types(line_types)
+  local h = 0
+  for i, ltype in ipairs(line_types) do
+    -- djb2-style hash: combine index and first byte of type string
+    h = ((h * 33) + i + (ltype:byte(1) or 0)) % 0x7FFFFFFF
+  end
+  return #line_types .. ":" .. h
+end
+
 function M._apply_diff_highlights(buf, line_types)
-  local new_key = table.concat(line_types, "\0")
+  local new_key = _hash_line_types(line_types)
   if _hl_cache[buf] == new_key then return end
 
   vim.api.nvim_buf_clear_namespace(buf, diff_ns, 0, -1)
@@ -445,15 +462,14 @@ function M.get_current_lnum()
   return display.line_map[display_lnum]
 end
 
--- Get code context for lines start..end (visual selection or single line)
-function M.get_code_context(line_start, line_end)
-  local display = diff_state.get()
+-- Extract code context from a line_map (shared by new and old side)
+local function _extract_code_context(line_start, line_end, line_map, all_lines)
   local result = {}
   line_end = line_end or line_start
 
-  for display_lnum, new_lnum in pairs(display.all_line_map) do
-    if new_lnum >= line_start and new_lnum <= line_end then
-      result[display_lnum] = display.all_lines[display_lnum]
+  for display_lnum, lnum in pairs(line_map) do
+    if lnum >= line_start and lnum <= line_end then
+      result[display_lnum] = all_lines[display_lnum]
     end
   end
 
@@ -472,6 +488,12 @@ function M.get_code_context(line_start, line_end)
   end
 
   return table.concat(code_lines, "\n")
+end
+
+-- Get code context for lines start..end (visual selection or single line)
+function M.get_code_context(line_start, line_end)
+  local display = diff_state.get()
+  return _extract_code_context(line_start, line_end, display.all_line_map, display.all_lines)
 end
 
 -- Get line info for the current cursor position: { lnum, side, type }
@@ -501,30 +523,7 @@ end
 -- Get code context for deleted (old-side) lines
 function M.get_code_context_old(line_start, line_end)
   local display = diff_state.get()
-  local result = {}
-  line_end = line_end or line_start
-
-  for display_lnum, old_lnum in pairs(display.all_old_line_map) do
-    if old_lnum >= line_start and old_lnum <= line_end then
-      result[display_lnum] = display.all_lines[display_lnum]
-    end
-  end
-
-  local keys = {}
-  for k in pairs(result) do table.insert(keys, k) end
-  table.sort(keys)
-
-  local code_lines = {}
-  for _, k in ipairs(keys) do
-    local line = result[k]
-    local ltype = get_line_type(line)
-    if ltype == "+" or ltype == "-" or ltype == " " then
-      line = line:sub(2)
-    end
-    table.insert(code_lines, line)
-  end
-
-  return table.concat(code_lines, "\n")
+  return _extract_code_context(line_start, line_end, display.all_old_line_map, display.all_lines)
 end
 
 -- Dispatch to the right code context getter based on side

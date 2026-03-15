@@ -92,9 +92,9 @@ describe("diff_parser.get_display_lines()", function()
   end)
 
   it("returns correct total count (2 file_hdr + 1 hdr + hunk lines)", function()
-    -- 2 file_hdr + 1 hunk header + 4 content lines = 7
-    assert.equals(7, #lines)
-    assert.equals(7, #line_types)
+    -- 2 file_hdr + 1 hunk header + 5 content lines (2 ctx + 1 del + 2 add) = 8
+    assert.equals(8, #lines)
+    assert.equals(8, #line_types)
   end)
 
   it("first line type is file_hdr", function()

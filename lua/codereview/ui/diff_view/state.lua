@@ -67,7 +67,7 @@ local function rebuild_visible_slice(diff)
   end
 
   if diff.is_truncated then
-    lines[visible_until + 1] = diff.truncation_line or "(diff truncado)"
+    lines[visible_until + 1] = diff.truncation_line or "(diff truncated)"
     line_types[visible_until + 1] = "truncated"
   end
 

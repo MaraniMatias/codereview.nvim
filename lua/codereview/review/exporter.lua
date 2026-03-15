@@ -120,6 +120,12 @@ local function validate_filename(filename)
 	if filename:find("/") then
 		return "filename cannot contain slashes — set review.path in your config to change the output directory"
 	end
+	if #filename > 255 then
+		return "filename is too long (max 255 characters)"
+	end
+	if filename:find("%z") then
+		return "filename contains invalid characters"
+	end
 	return nil
 end
 
