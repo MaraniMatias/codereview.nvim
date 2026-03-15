@@ -5,7 +5,8 @@ local diff_parser = require("codereview.diff_parser")
 local virtual = require("codereview.notes.virtual")
 local git = require("codereview.git")
 
--- Current file's display data
+-- NOTE: current_display is module-level state. Only one diff view can exist
+-- per Neovim session. Call M.clear() when closing the layout.
 local current_display = {
   lines = {},
   line_types = {},
@@ -259,8 +260,8 @@ function M.setup_keymaps(buf)
     virtual.toggle(s.buffers.diff, file.path, current_display.line_map)
   end, opts)
 
-  -- Tab: cycle focus to explorer panel
-  vim.keymap.set("n", "<Tab>", function()
+  -- Cycle focus to explorer panel
+  vim.keymap.set("n", km.cycle_focus, function()
     layout.focus_explorer()
   end, opts)
 
@@ -305,6 +306,13 @@ function M._jump_note(direction)
   if target_note then
     M.jump_to_line(target_note.line_start)
   end
+end
+
+-- Reset current_display state (call when closing the layout)
+function M.clear()
+  current_display.lines = {}
+  current_display.line_types = {}
+  current_display.line_map = {}
 end
 
 -- Refresh notes display

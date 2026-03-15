@@ -1,6 +1,7 @@
 local M = {}
 local state = require("codereview.state")
 local store = require("codereview.notes.store")
+local config = require("codereview.config")
 
 -- Namespace for extmarks
 local ns_id = vim.api.nvim_create_namespace("codereview_notes")
@@ -10,8 +11,9 @@ function M.set_extmark(buf, lnum, note)
   if not vim.api.nvim_buf_is_valid(buf) then return nil end
 
   local text = note.text or ""
-  if #text > 60 then
-    text = text:sub(1, 57) .. "..."
+  local tlen = config.options.virtual_text_truncate_len
+  if #text > tlen then
+    text = text:sub(1, tlen - 3) .. "..."
   end
   -- Remove newlines from virtual text display
   text = text:gsub("\n", " ")

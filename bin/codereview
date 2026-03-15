@@ -12,4 +12,5 @@
 #   git difftool --dir-diff --cached -t codereview
 #   git difftool --dir-diff -t codereview main..feature-branch
 
-exec nvim -c "lua require('codereview').difftool('$1', '$2')"
+CODEREVIEW_LOCAL="$1" CODEREVIEW_REMOTE="$2" \
+  exec nvim -c "lua require('codereview').difftool(vim.env.CODEREVIEW_LOCAL, vim.env.CODEREVIEW_REMOTE)"

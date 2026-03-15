@@ -91,6 +91,15 @@ function M.open(filepath, line_start, line_end, code, existing_text)
     edit_start_line = edit_start_line,
   }
 
+  -- Clean up float_ctx if Neovim closes the window externally (:qa, etc.)
+  vim.api.nvim_create_autocmd("WinClosed", {
+    pattern = tostring(win),
+    once = true,
+    callback = function()
+      float_ctx = nil
+    end,
+  })
+
   -- Keymaps
   local opts = { noremap = true, silent = true, buffer = buf }
 

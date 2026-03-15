@@ -8,6 +8,37 @@ function M._args_str(args_list)
   return table.concat(escaped, " ")
 end
 
+-- Run a shell command capturing stdout and stderr separately
+-- Returns: stdout (string), exit_code (number), stderr (string)
+function M._run(cmd)
+  local stderr_file = vim.fn.tempname()
+  local stdout = vim.fn.system(cmd .. " 2>" .. vim.fn.shellescape(stderr_file))
+  local exit_code = vim.v.shell_error
+  local stderr = ""
+  if vim.fn.filereadable(stderr_file) == 1 then
+    local lines = vim.fn.readfile(stderr_file)
+    stderr = table.concat(lines, "\n")
+    vim.fn.delete(stderr_file)
+  end
+  return stdout, exit_code, stderr
+end
+
+-- Classify a git stderr message into a human-readable error
+local function _classify_error(stderr)
+  if stderr:find("not a git repository", 1, true) then
+    return "codereview: not a git repository"
+  elseif stderr:find("unknown revision", 1, true)
+      or stderr:find("bad revision", 1, true)
+      or stderr:find("ambiguous argument", 1, true) then
+    return "codereview: invalid git ref or revision"
+  elseif stderr:find("does not exist in", 1, true)
+      or stderr:find("exists on disk, but not in", 1, true) then
+    return "codereview: path does not exist in the given ref"
+  else
+    return "codereview: git command failed"
+  end
+end
+
 -- Get the git repository root from a given path
 -- Returns root path string or nil
 function M.get_repo_root(path)
@@ -27,12 +58,13 @@ end
 function M.get_changed_files(root, diff_args)
   local args_str = M._args_str(diff_args)
   local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff --name-status " .. args_str .. " 2>/dev/null"
-  local lines = vim.fn.systemlist(cmd)
-  if vim.v.shell_error ~= 0 then
-    vim.notify("codereview: git diff failed (invalid ref or not a repository)", vim.log.levels.WARN)
-    return {}
+    " diff --name-status " .. args_str
+  local stdout, exit_code, stderr = M._run(cmd)
+  if exit_code ~= 0 then
+    vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+    return nil
   end
+  local lines = vim.split(stdout, "\n", { trimempty = true })
 
   local files = {}
   for _, line in ipairs(lines) do
@@ -66,7 +98,7 @@ function M.get_file_old(root, path, diff_args)
   if is_staged then
     -- Read from the index (staged version of old file)
     cmd = "git -C " .. vim.fn.shellescape(root) ..
-      " show :" .. vim.fn.shellescape(path) .. " 2>/dev/null"
+      " show :" .. vim.fn.shellescape(path)
   else
     -- Find first non-flag arg as ref; default to HEAD
     local ref = "HEAD"
@@ -77,11 +109,16 @@ function M.get_file_old(root, path, diff_args)
       end
     end
     cmd = "git -C " .. vim.fn.shellescape(root) ..
-      " show " .. ref .. ":" .. vim.fn.shellescape(path) .. " 2>/dev/null"
+      " show " .. vim.fn.shellescape(ref) .. ":" .. vim.fn.shellescape(path)
   end
 
-  local content = vim.fn.system(cmd)
-  if vim.v.shell_error ~= 0 then
+  local content, exit_code, stderr = M._run(cmd)
+  if exit_code ~= 0 then
+    -- Silently ignore "new file" errors (file didn't exist in the ref): expected
+    if not stderr:find("exists on disk, but not in", 1, true)
+        and not stderr:find("does not exist in", 1, true) then
+      vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+    end
     return nil
   end
   return content
@@ -99,9 +136,10 @@ function M.get_file_diff(root, path, diff_args)
   end
   local args_str = M._args_str(clean_args)
   local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff " .. args_str .. " -- " .. vim.fn.shellescape(path) .. " 2>/dev/null"
-  local result = vim.fn.system(cmd)
-  if vim.v.shell_error ~= 0 and result == "" then
+    " diff " .. args_str .. " -- " .. vim.fn.shellescape(path)
+  local result, exit_code, stderr = M._run(cmd)
+  if exit_code ~= 0 then
+    vim.notify(_classify_error(stderr), vim.log.levels.WARN)
     return nil
   end
   return result
@@ -110,8 +148,12 @@ end
 -- Get diff for staged changes
 function M.get_staged_diff(root, path)
   local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff --cached -- " .. vim.fn.shellescape(path) .. " 2>/dev/null"
-  local result = vim.fn.system(cmd)
+    " diff --cached -- " .. vim.fn.shellescape(path)
+  local result, exit_code, stderr = M._run(cmd)
+  if exit_code ~= 0 then
+    vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+    return nil
+  end
   return result
 end
 

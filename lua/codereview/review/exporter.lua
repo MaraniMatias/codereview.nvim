@@ -102,12 +102,15 @@ function M.save_with_prompt()
   }, function(filename)
     if not filename or filename == "" then return end
 
-    local full_path
     if filename:sub(1, 1) == "/" then
-      full_path = filename
-    else
-      full_path = save_dir .. "/" .. filename
+      vim.notify(
+        "codereview: absolute paths not allowed here — set review.path in your config instead",
+        vim.log.levels.ERROR
+      )
+      return
     end
+
+    local full_path = save_dir .. "/" .. filename
 
     if vim.fn.filereadable(full_path) == 1 then
       vim.ui.input({

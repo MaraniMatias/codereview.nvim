@@ -69,6 +69,7 @@ end
 
 -- Close the layout and clean up
 function M.close()
+  require("codereview.ui.diff_view").clear()
   local s = state.get()
   if s.tab and vim.api.nvim_tabpage_is_valid(s.tab) then
     vim.cmd("tabclose")

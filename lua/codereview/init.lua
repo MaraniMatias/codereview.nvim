@@ -38,6 +38,10 @@ function M.open(args)
 
   local args_display = #s.diff_args > 0 and table.concat(s.diff_args, " ") or "(working tree)"
   local files = git.get_changed_files(root, s.diff_args)
+  if files == nil then
+    -- git error already notified inside get_changed_files
+    return
+  end
   if #files == 0 then
     vim.notify("No changed files found (git diff " .. args_display .. ")", vim.log.levels.INFO)
     return
@@ -143,6 +147,7 @@ function M.refresh()
 
   if s.mode == "review" then
     local files = git.get_changed_files(s.root, s.diff_args)
+    if not files then return end
     for _, f in ipairs(files) do
       f.expanded = false
       for _, existing in ipairs(s.files) do
