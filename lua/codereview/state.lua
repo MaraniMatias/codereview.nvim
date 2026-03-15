@@ -22,6 +22,17 @@ local initial_state = {
     explorer = nil,
     diff = nil,
   },
+  ui = {
+    explorer = {
+      actions_by_line = {},
+      last_preview_key = nil,
+    },
+    diff = {
+      lines = {},
+      line_types = {},
+      line_map = {},
+    },
+  },
   prev_win = nil,
   tab = nil,
 }

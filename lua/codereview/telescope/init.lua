@@ -76,21 +76,15 @@ function M.open_notes_picker()
         if not selection then return end
         local note = selection.value.note
 
-        local st = require("codereview.state")
-        local s = st.get()
         local explorer = require("codereview.ui.explorer")
-        local diff_view = require("codereview.ui.diff_view")
-        local layout = require("codereview.ui.layout")
-
-        for fi, f in ipairs(s.files) do
-          if f.path == note.filepath then
-            explorer.select_file(fi)
-            diff_view.show_file(fi)
-            diff_view.jump_to_line(note.line_start)
-            layout.focus_diff()
-            break
-          end
-        end
+        explorer.preview_action({
+          type = "note",
+          filepath = note.filepath,
+          line = note.line_start,
+        }, {
+          focus_diff = true,
+          move_cursor = true,
+        })
       end)
       return true
     end,

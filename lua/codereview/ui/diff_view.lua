@@ -4,21 +4,12 @@ local config = require("codereview.config")
 local diff_parser = require("codereview.diff_parser")
 local virtual = require("codereview.notes.virtual")
 local git = require("codereview.git")
+local diff_state = require("codereview.ui.diff_view.state")
 local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
 local diff_request_id = 0
 
--- NOTE: current_display is module-level state. Only one diff view can exist
--- per Neovim session. Call M.clear() when closing the layout.
-local current_display = {
-  lines = {},
-  line_types = {},
-  line_map = {},  -- display_line (1-based) -> new_lnum (1-based)
-}
-
 local function reset_display()
-  current_display.lines = {}
-  current_display.line_types = {}
-  current_display.line_map = {}
+  diff_state.reset()
 end
 
 local function set_buffer_lines(buf, lines)
@@ -89,9 +80,11 @@ function M.show_file(idx)
       end
     end
 
-    current_display.lines = lines
-    current_display.line_types = line_types
-    current_display.line_map = line_map
+    diff_state.set({
+      lines = lines,
+      line_types = line_types,
+      line_map = line_map,
+    })
 
     set_buffer_lines(buf, lines)
     M._apply_diff_highlights(buf, line_types)
@@ -150,12 +143,13 @@ end
 -- Jump to the display line nearest to new_lnum
 function M.jump_to_line(new_lnum)
   local s = state.get()
+  local display = diff_state.get()
   if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then return end
 
   -- Find the display line for this lnum
   local best_line = 1
   local best_dist = math.huge
-  for display_l, n_lnum in pairs(current_display.line_map) do
+  for display_l, n_lnum in pairs(display.line_map) do
     local dist = math.abs(n_lnum - new_lnum)
     if dist < best_dist then
       best_dist = dist
@@ -168,23 +162,25 @@ end
 -- Get the new_lnum for the current cursor position in diff view
 function M.get_current_lnum()
   local s = state.get()
+  local display = diff_state.get()
   if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then
     return nil
   end
   local cursor = vim.api.nvim_win_get_cursor(s.windows.diff)
   local display_lnum = cursor[1]
-  return current_display.line_map[display_lnum]
+  return display.line_map[display_lnum]
 end
 
 -- Get code context for lines start..end (visual selection or single line)
 function M.get_code_context(line_start, line_end)
+  local display = diff_state.get()
   local result = {}
   line_end = line_end or line_start
 
   -- Collect lines from the display that map to the requested range
-  for display_l, n_lnum in pairs(current_display.line_map) do
+  for display_l, n_lnum in pairs(display.line_map) do
     if n_lnum >= line_start and n_lnum <= line_end then
-      result[display_l] = current_display.lines[display_l]
+      result[display_l] = display.lines[display_l]
     end
   end
 
@@ -226,14 +222,15 @@ function M.setup_keymaps(buf)
 
   -- Add note from visual selection
   vim.keymap.set("v", km.note, function()
+    local display = diff_state.get()
     -- Get visual selection range
     local vstart = vim.fn.line("v")
     local vend = vim.fn.line(".")
     if vstart > vend then vstart, vend = vend, vstart end
 
     -- Map visual display lines to new_lnums
-    local lnum_start = current_display.line_map[vstart]
-    local lnum_end = current_display.line_map[vend]
+    local lnum_start = display.line_map[vstart]
+    local lnum_end = display.line_map[vend]
     if not lnum_start then return end
     lnum_end = lnum_end or lnum_start
 
@@ -261,15 +258,13 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", km.next_file, function()
     local s = state.get()
     if s.current_file_idx < #s.files then
-      explorer.select_file(s.current_file_idx + 1)
-      M.show_file(s.current_file_idx)
+      explorer.preview_action({ type = "file", idx = s.current_file_idx + 1 }, { move_cursor = true })
     end
   end, opts)
   vim.keymap.set("n", km.prev_file, function()
     local s = state.get()
     if s.current_file_idx > 1 then
-      explorer.select_file(s.current_file_idx - 1)
-      M.show_file(s.current_file_idx)
+      explorer.preview_action({ type = "file", idx = s.current_file_idx - 1 }, { move_cursor = true })
     end
   end, opts)
 
@@ -288,7 +283,7 @@ function M.setup_keymaps(buf)
     local s = state.get()
     local file = s.files[s.current_file_idx]
     if not file then return end
-    virtual.toggle(s.buffers.diff, file.path, current_display.line_map)
+    virtual.toggle(s.buffers.diff, file.path, diff_state.get().line_map)
   end, opts)
 
   -- Cycle focus to explorer panel
@@ -339,7 +334,7 @@ function M._jump_note(direction)
   end
 end
 
--- Reset current_display state (call when closing the layout)
+-- Reset diff display state (call when closing the layout)
 function M.clear()
   diff_request_id = diff_request_id + 1
   reset_display()
@@ -352,7 +347,7 @@ function M.refresh_notes()
   local file = s.files[s.current_file_idx]
   if not file or not buf then return end
   if s.notes_visible then
-    virtual.render_notes(buf, file.path, current_display.line_map)
+    virtual.render_notes(buf, file.path, diff_state.get().line_map)
   else
     virtual.clear_extmarks(buf)
   end
