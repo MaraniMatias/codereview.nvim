@@ -221,6 +221,7 @@ function M.show_file(idx)
   reset_display()
   virtual.clear_extmarks(buf)
   set_buffer_lines(buf, { "  (loading diff...)" })
+  _hl_cache[buf] = nil   -- force re-apply when file arrives
   pcall(vim.api.nvim_buf_set_name, buf, "codereview://" .. file.path)
   focus_top(s.windows.diff)
 
@@ -272,7 +273,11 @@ end
 function M._get_diff_for_file(file, callback)
   local s = state.get()
   if s.mode == "difftool" then
-    git.get_difftool_diff(file, callback)
+    if file.local_file and file.remote_file then
+      git.get_difftool_diff(file, callback)
+    else
+      git.get_file_diff(s.root, file, {}, callback)  -- working tree diff for non-diffed files
+    end
   else
     git.get_file_diff(s.root, file, s.diff_args, callback)
   end

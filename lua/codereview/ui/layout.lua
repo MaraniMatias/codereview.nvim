@@ -395,6 +395,13 @@ function M.close(force)
 
   require("codereview.ui.diff_view").clear()
 
+  -- In difftool mode: exit Neovim completely (tabclose fails on single-tab)
+  if s.mode == "difftool" then
+    finalize_close(prev_win)
+    pcall(vim.cmd, force and "qa!" or "qa")
+    return true
+  end
+
   local closed = not is_valid_tab(review_tab)
 
   if is_valid_tab(review_tab) then

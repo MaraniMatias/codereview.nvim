@@ -72,6 +72,8 @@ function M.open(filepath, line_start, line_end, code, existing_text)
     border = "rounded",
     title = " Add Note ",
     title_pos = "center",
+    footer = " w save  ·  <Esc> save?  ·  q cancel ",
+    footer_pos = "center",
   })
 
   vim.api.nvim_set_option_value("wrap", true, { win = win })
@@ -103,16 +105,42 @@ function M.open(filepath, line_start, line_end, code, existing_text)
   -- Keymaps
   local opts = { noremap = true, silent = true, buffer = buf }
 
-  -- Confirm with <C-s>
-  vim.keymap.set({ "n", "i" }, "<C-s>", function()
+  local function ask_save_or_discard()
+    if not float_ctx then return end
+    local ctx = float_ctx
+    local lines = vim.api.nvim_buf_get_lines(ctx.buf, ctx.edit_start_line - 1, -1, false)
+    local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then
+      M.close()
+      return
+    end
+    local choice = vim.fn.confirm("Save note?", "&Yes\n&No\n&Cancel", 1)
+    if choice == 1 then
+      M.confirm()
+    elseif choice == 2 then
+      M.close()
+    end
+    -- 0 or 3 (Cancel): stay in float
+  end
+
+  -- Save with w (like :w in vim), normal mode only
+  vim.keymap.set("n", "w", function()
     M.confirm()
   end, opts)
 
-  -- Cancel with q or <Esc> in normal mode
-  vim.keymap.set("n", "q", function()
-    M.close()
+  -- Esc in insert mode: exit insert then ask save/discard
+  vim.keymap.set("i", "<Esc>", function()
+    vim.cmd("stopinsert")
+    vim.schedule(ask_save_or_discard)
   end, opts)
+
+  -- Esc in normal mode: ask save/discard
   vim.keymap.set("n", "<Esc>", function()
+    ask_save_or_discard()
+  end, opts)
+
+  -- q: discard without asking
+  vim.keymap.set("n", "q", function()
     M.close()
   end, opts)
 

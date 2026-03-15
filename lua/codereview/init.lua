@@ -222,6 +222,40 @@ function M.difftool(local_path, remote_path, merged_path)
       or (vim.env.CODEREVIEW_MERGED ~= "" and vim.env.CODEREVIEW_MERGED or nil)
       or (vim.env.MERGED and vim.env.MERGED ~= "" and vim.env.MERGED or nil)
 
+    local function inject_and_open(rel, local_p, remote_p)
+      git.get_changed_files(s.root, {}, function(all_files)
+        all_files = all_files or {}
+        local current_idx = 1
+        local found = false
+        for i, f in ipairs(all_files) do
+          if f.path == rel then
+            f.local_file = local_p
+            f.remote_file = remote_p
+            current_idx = i
+            found = true
+            break
+          end
+        end
+        if not found then
+          table.insert(all_files, 1, {
+            path = rel, status = "M",
+            local_file = local_p, remote_file = remote_p,
+            expanded = false,
+          })
+          current_idx = 1
+        end
+        opening = false
+        if #all_files == 0 then
+          state.reset()
+          vim.notify("No changed files found", vim.log.levels.INFO)
+          return
+        end
+        s.files = normalize_files(all_files)
+        s.current_file_idx = current_idx
+        open_layout("codereview difftool: " .. #s.files .. " file(s)")
+      end)
+    end
+
     if merged then
       -- Derive repo-relative path from $MERGED for stable, collision-free identity
       git.get_repo_root(vim.fn.fnamemodify(merged, ":h"), function(root)
@@ -234,13 +268,13 @@ function M.difftool(local_path, remote_path, merged_path)
           rel = vim.fn.fnamemodify(merged, ":t")
           s.root = vim.fn.getcwd()
         end
-        finish({ { path = rel, status = "M", local_file = local_path, remote_file = remote_path, expanded = false } })
+        inject_and_open(rel, local_path, remote_path)
       end)
     else
       -- Fallback without $MERGED: use basename of remote_path (original behavior)
       local rel_path = vim.fn.fnamemodify(remote_path, ":t")
       s.root = vim.fn.getcwd()
-      finish({ { path = rel_path, status = "M", local_file = local_path, remote_file = remote_path, expanded = false } })
+      inject_and_open(rel_path, local_path, remote_path)
     end
   end
 end
