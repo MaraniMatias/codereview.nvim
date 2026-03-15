@@ -139,6 +139,7 @@ function M.open(args)
   opening = true
 
   state.init()
+  require("codereview.notes.store").reset_cache()
   local s = state.get()
   s.mode = "review"
   s.diff_args = args or {}
@@ -187,6 +188,7 @@ function M.difftool(local_path, remote_path, merged_path)
   opening = true
 
   state.init()
+  require("codereview.notes.store").reset_cache()
   local s = state.get()
   s.mode = "difftool"
 

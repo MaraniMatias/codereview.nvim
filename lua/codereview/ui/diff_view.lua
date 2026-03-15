@@ -8,6 +8,8 @@ local diff_state = require("codereview.ui.diff_view.state")
 local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
 local diff_request_id = 0
 local treesitter_max_lines = 5000
+local _ts_lang_cache = {}   -- buf -> lang string | false
+local _hl_cache = {}        -- buf -> concat key string
 
 local function reset_display()
   diff_state.reset()
@@ -273,22 +275,38 @@ function M._get_diff_for_file(file, callback)
 end
 
 function M._update_treesitter(buf, filepath, visible_until)
-  pcall(vim.treesitter.stop, buf)
+  local desired_lang = nil
+  if filepath and visible_until > 0 and visible_until <= treesitter_max_lines then
+    local ext = filepath:match("%.([^%.]+)$")
+    if ext then
+      local ok, lang = pcall(vim.treesitter.language.get_lang, ext)
+      if ok and lang then desired_lang = lang end
+    end
+  end
 
-  if not filepath or visible_until <= 0 or visible_until > treesitter_max_lines then
+  local cached = _ts_lang_cache[buf]
+
+  if desired_lang == nil then
+    if cached ~= false and cached ~= nil then
+      pcall(vim.treesitter.stop, buf)
+      _ts_lang_cache[buf] = false
+    end
     return
   end
 
-  local ext = filepath:match("%.([^%.]+)$")
-  if ext then
-    local ok, lang = pcall(vim.treesitter.language.get_lang, ext)
-    if ok and lang then
-      pcall(vim.treesitter.start, buf, lang)
+  if cached ~= desired_lang then
+    if cached ~= false and cached ~= nil then
+      pcall(vim.treesitter.stop, buf)
     end
+    pcall(vim.treesitter.start, buf, desired_lang)
+    _ts_lang_cache[buf] = desired_lang
   end
 end
 
 function M._apply_diff_highlights(buf, line_types)
+  local new_key = table.concat(line_types, "\0")
+  if _hl_cache[buf] == new_key then return end
+
   vim.api.nvim_buf_clear_namespace(buf, diff_ns, 0, -1)
 
   vim.api.nvim_set_hl(0, "CodeReviewFileHdr", { link = "Label", default = true })
@@ -311,6 +329,8 @@ function M._apply_diff_highlights(buf, line_types)
       vim.api.nvim_buf_add_highlight(buf, diff_ns, hl, lnum - 1, 0, -1)
     end
   end
+
+  _hl_cache[buf] = new_key
 end
 
 function M.load_more()
@@ -525,6 +545,8 @@ end
 function M.clear()
   diff_request_id = diff_request_id + 1
   reset_display()
+  _ts_lang_cache = {}
+  _hl_cache = {}
 end
 
 -- Refresh notes display

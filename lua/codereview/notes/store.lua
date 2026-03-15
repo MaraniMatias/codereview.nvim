@@ -1,5 +1,6 @@
 local M = {}
 local state = require("codereview.state")
+local _sorted_cache = {}   -- filepath -> sorted notes array
 
 -- NoteEntry structure:
 -- {
@@ -25,6 +26,7 @@ function M.set(filepath, line_start, line_end, code, text)
     text = text,
   }
   s.notes_dirty = true
+  _sorted_cache[filepath] = nil
   return s.notes[filepath][key]
 end
 
@@ -41,11 +43,13 @@ function M.delete(filepath, line)
   if s.notes[filepath] then
     s.notes[filepath][line] = nil
     s.notes_dirty = true
+    _sorted_cache[filepath] = nil
   end
 end
 
 -- Get all notes for a filepath, sorted by line number
 function M.get_for_file(filepath)
+  if _sorted_cache[filepath] then return _sorted_cache[filepath] end
   local s = state.get()
   if not s.notes[filepath] then return {} end
   local notes = {}
@@ -53,7 +57,12 @@ function M.get_for_file(filepath)
     table.insert(notes, note)
   end
   table.sort(notes, function(a, b) return a.line_start < b.line_start end)
+  _sorted_cache[filepath] = notes
   return notes
+end
+
+function M.reset_cache()
+  _sorted_cache = {}
 end
 
 -- Get all notes across all files, sorted by filepath then line
