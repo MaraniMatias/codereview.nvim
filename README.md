@@ -1,27 +1,32 @@
 # CodeReview.nvim
 
-A Neovim plugin for Git diff-based code review. Navigate changed files, add inline notes on diffs, and export everything to a `review-YYYY-MM-DD.md`. It works both as `:CodeReview` inside Neovim and as `git difftool --dir-diff`.
+Inline code review on any `git diff`, right inside Neovim.
+
+[![Neovim](https://img.shields.io/badge/Neovim-%3E%3D0.9-57A143?logo=neovim&logoColor=white)](https://neovim.io)
+[![License](https://img.shields.io/github/license/MaraniMatias/codereview.nvim)](LICENSE)
 
 ![Screenshot](./docs/screenshot.png)
 
 ## Features
 
-- Two-panel review layout in a dedicated tab
-- Unified diff rendering with highlights
-- Smart note action for create or edit on the current line
-- Visual selection notes with captured code context
-- Virtual text notes with a visibility toggle
-- Explorer note entries and per-file note counts
-- Telescope picker for all notes
-- Markdown export with prompt flow and direct `:W` save
-- Unsaved-note protection on close
-- `git difftool --dir-diff` integration
-- Left panel: file explorer with badges, note counts, and note entries
-- Right panel: unified diff view with highlights and virtual text notes
+**Review workflow** — Two-panel layout (explorer + unified diff), markdown export with prompt flow or direct `:W` save, `git difftool --dir-diff` integration.
+
+**Inline notes** — Smart add/edit on any diff line, visual-selection notes with captured code context, virtual text with visibility toggle, Telescope picker for all notes.
+
+**Navigation** — File explorer with badges and note counts, `]n`/`[n` and `]f`/`[f` bracket motions, `?` help window with all keymaps.
+
+**Safety** — Unsaved-note protection on close, large diff pagination with configurable thresholds.
+
+## Quick Start
+
+1. Install the plugin (see [Installation](#installation))
+2. Open a review: `:CodeReview`
+3. Navigate files with `j`/`k`, press `n` on any diff line to add a note, export with `:w`
 
 ## Requirements
 
 - Neovim >= 0.9
+- Git
 
 ## Installation
 
@@ -29,8 +34,8 @@ A Neovim plugin for Git diff-based code review. Navigate changed files, add inli
 {
   "MaraniMatias/codereview.nvim",
   dependencies = {
-    "nvim-telescope/telescope.nvim", -- optional
-    "nvim-tree/nvim-web-devicons", -- optional
+    "nvim-telescope/telescope.nvim", -- optional: enables notes picker (<Space>n)
+    "nvim-tree/nvim-web-devicons",   -- optional: file icons in the explorer
   },
   config = function()
     require("codereview").setup({})
@@ -38,56 +43,31 @@ A Neovim plugin for Git diff-based code review. Navigate changed files, add inli
 }
 ```
 
-## Configuration
-
-```lua
-require("codereview").setup({
-  diff_view = "unified", -- "split" is planned, not implemented yet
-  explorer_width = 40,
-  max_diff_lines = 1200, -- initial visible diff lines before truncation
-  diff_page_size = 400,  -- extra lines revealed per load-more action
-
-  keymaps = {
-    note = "n",                    -- smart add/edit note on current line
-    toggle_virtual_text = "<leader>uh",
-    next_note = "]n",
-    prev_note = "[n",
-    next_file = "]f",
-    prev_file = "[f",
-    cycle_focus = "<Tab>",
-    save = "<C-s>",
-    notes_picker = "<Space>n",
-    quit = "q",
-    toggle_notes = "za",
-    refresh = "R",
-    load_more_diff = "L",         -- reveal more lines when a diff is truncated
-  },
-
-  review = {
-    default_filename = "review-%Y-%m-%d.md",
-    path = nil, -- nil = git root
-  },
-})
-```
-
-Default keymap contract: `<Tab>` cycles focus between explorer and diff, and `za` expands or collapses note groups in the explorer. Both can be remapped in `keymaps`.
-
-Large diffs keep the current behavior when they fit within `max_diff_lines`. When a diff exceeds that limit, CodeReview renders the first slice, shows a truncation sentinel at the bottom, and each `load_more_diff` action reveals another `diff_page_size` lines.
-
 ## Usage
 
 ### Inside Neovim
 
-`CodeReview` accepts any arguments you would pass to `git diff`.
+`:CodeReview` accepts any arguments you would pass to `git diff`.
 
 ```vim
-:CodeReview
-:CodeReview main..feature
-:CodeReview HEAD~3
-:CodeReview --staged
-:CodeReview -- path/to/file
-:CodeReview --staged -- path/to/file
+:CodeReview                             " unstaged changes
+:CodeReview main..feature               " branch comparison
+:CodeReview HEAD~3                      " last 3 commits
+:CodeReview --staged                    " staged changes only
+:CodeReview -- path/to/file             " single file
+:CodeReview --staged -- path/to/file    " staged + single file
 ```
+
+### Saving and Closing
+
+| Command | Effect |
+| ------- | ------ |
+| `:w`    | Opens save prompt, writes the markdown review |
+| `:W`    | Saves directly to the auto-generated filename |
+| `:q`    | Warns if you have unsaved notes |
+| `:q!`   | Forces the review tab to close |
+
+Notes live in memory for the current session only; exporting saves the Markdown review, not the in-editor note state.
 
 ### As git difftool
 
@@ -101,7 +81,20 @@ Add this to `~/.gitconfig`:
     prompt = false
 ```
 
-Or use the wrapper shipped in `bin/codereview`:
+Then run:
+
+```bash
+git difftool --dir-diff -t codereview
+git difftool --dir-diff --cached -t codereview
+git difftool --dir-diff -t codereview main..feature-branch
+```
+
+`--dir-diff` gives the plugin all changed files at once, enabling the multi-file explorer.
+
+<details>
+<summary>Alternative: wrapper script</summary>
+
+You can also point difftool at the wrapper shipped in `bin/codereview`:
 
 ```ini
 [difftool "codereview"]
@@ -111,47 +104,30 @@ Or use the wrapper shipped in `bin/codereview`:
 
 The wrapper automatically captures `$MERGED` from git's environment to build a stable, repo-relative file identity — preventing note collisions when multiple files share the same basename (e.g. `src/utils/helpers.js` vs `src/components/helpers.js`).
 
-Examples:
-
-```bash
-git difftool --dir-diff -t codereview
-git difftool --dir-diff --cached -t codereview
-git difftool --dir-diff -t codereview main..feature-branch
-```
-
-`--dir-diff` is the mode that gives the plugin all changed files at once, which is what enables the multi-file explorer.
-
-## Saving and Closing
-
-- `:w` inside the CodeReview buffers opens the save prompt and writes the markdown review
-- `:W` saves directly to the auto-generated filename
-- notes live in memory for the current Neovim session only; exporting saves the Markdown review, not the in-editor note state
-- `:q` warns if you have unsaved notes
-- `:q!` forces the review tab to close
+</details>
 
 ## Keybindings
 
+All keybindings are remappable via `keymaps` in your setup config.
+
 ### Explorer Panel
 
-| Key             | Action                                                    |
-| --------------- | --------------------------------------------------------- |
-| `j` / `k`       | Navigate files and note entries; preview updates on pause |
-| `Enter` / `l`   | Focus the diff panel for the selected item                |
-| `Enter` on note | Focus that note in the diff                               |
-| `za`            | Expand or collapse notes for the selected file            |
-| `]f` / `[f`     | Next or previous file                                     |
-| `R`             | Refresh file list                                         |
-| `<Tab>`         | Focus diff panel                                          |
-| `q`             | Close review                                              |
-
-You can remap either `cycle_focus` or `toggle_notes` in your config.
-To enable a save shortcut add `keymaps = { save = "<C-s>" }` to your setup.
+| Key           | Action                                         |
+| ------------- | ---------------------------------------------- |
+| `j` / `k`     | Navigate files and note entries                |
+| `Enter` / `l` | Focus the diff panel for the selected item     |
+| `h`           | Toggle notes for the selected file             |
+| `za`          | Expand or collapse notes for the selected file |
+| `]f` / `[f`   | Next or previous file                          |
+| `R`           | Refresh file list                              |
+| `<Tab>`       | Focus diff panel                               |
+| `?`           | Show help window                               |
+| `q`           | Close review                                   |
 
 ### Diff Panel
 
 | Key          | Action                                 |
 | ------------ | -------------------------------------- |
-| Vim motions  | Normal navigation                      |
 | `n`          | Smart add or edit note on current line |
 | `V` then `n` | Add note from visual selection         |
 | `]n` / `[n`  | Next or previous note in current file  |
@@ -162,16 +138,73 @@ To enable a save shortcut add `keymaps = { save = "<C-s>" }` to your setup.
 | `<Tab>`      | Focus explorer panel                   |
 | `q`          | Close review                           |
 
-### Note Float
+### Note Editor
 
-| Key         | Action                                              |
-| ----------- | --------------------------------------------------- |
-| Insert mode | Write note text                                     |
-| `w`         | Save note (normal mode)                             |
-| `<Esc>`     | Ask to save or discard (from insert or normal mode) |
-| `q`         | Discard note without asking (normal mode)           |
+| Key     | Action                                 |
+| ------- | -------------------------------------- |
+| `w`     | Save note (normal mode)                |
+| `q`     | Discard note without asking            |
+| `<Esc>` | Ask to save or discard                 |
 
-## `review-YYYY-MM-DD.md` Format
+## Configuration
+
+Most users won't need any config — defaults are tuned for a typical review workflow.
+
+```lua
+require("codereview").setup({
+  explorer_width = 30,
+  keymaps = {
+    save = "<C-s>",  -- disabled by default; set to enable a save shortcut
+  },
+})
+```
+
+<details>
+<summary>Full configuration reference</summary>
+
+```lua
+require("codereview").setup({
+  diff_view = "unified",            -- "split" is planned, not implemented yet
+  explorer_width = 30,              -- width of the file explorer panel
+  border = "rounded",               -- "rounded" | "single" | "double" | "solid" | "none"
+  explorer_title = " Files ",
+  diff_title = " Diff ",
+  note_truncate_len = 30,           -- truncation of notes in explorer sub-items
+  virtual_text_truncate_len = 60,   -- truncation of virtual text annotations
+  max_diff_lines = 1200,            -- initial visible diff lines before truncation
+  diff_page_size = 400,             -- extra lines revealed per load-more action
+
+  keymaps = {
+    note = "n",                     -- smart add/edit note on current line
+    toggle_virtual_text = "<leader>uh",
+    next_note = "]n",
+    prev_note = "[n",
+    next_file = "]f",
+    prev_file = "[f",
+    cycle_focus = "<Tab>",
+    save = false,                   -- set to e.g. "<C-s>" to enable a save shortcut
+    notes_picker = "<Space>n",
+    quit = "q",
+    toggle_notes = "za",
+    refresh = "R",
+    load_more_diff = "L",
+  },
+
+  review = {
+    default_filename = "review-%Y-%m-%d.md",
+    path = nil,                     -- nil = git root
+    context_lines = 0,              -- extra lines above/below when auto-reading code from disk
+  },
+})
+```
+
+</details>
+
+Large diffs keep the current behavior when they fit within `max_diff_lines`. When a diff exceeds that limit, CodeReview renders the first slice, shows a truncation sentinel at the bottom, and each `load_more_diff` action reveals another `diff_page_size` lines.
+
+## Export Format
+
+Running `:w` or `:W` generates a Markdown file with each note grouped under its file path, including the relevant code context:
 
 ````markdown
 # Review 2026-03-14
@@ -184,7 +217,7 @@ const result = a + b;
 
 revisit this calculation
 
-`hendlerUser.js`
+`handlers/user.js`
 
 ```text {67,72}
 function handleUser(user) {
@@ -197,13 +230,11 @@ function handleUser(user) {
 Add a null check for `user` before accessing `.name`
 ````
 
-## Current Limitations
+## Known Limitations
 
 - `diff_view = "split"` is not implemented yet
-- `:CodeReview` passes all arguments directly to `git diff`
-- notes are session-only; closing CodeReview discards in-memory notes unless you export the review
-- note anchors are based on new-file line numbers today
-- `git difftool --dir-diff` status detection is still best-effort in edge cases
+- Notes are session-only; closing CodeReview discards in-memory notes unless you export the review
+- Note anchors are based on new-file line numbers
 
 ## Acknowledgements
 
