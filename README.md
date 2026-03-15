@@ -35,8 +35,6 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 ## Requirements
 
 - Neovim >= 0.9
-- `telescope.nvim` optional, for the notes picker
-- `nvim-web-devicons` optional, for file type icons in the explorer
 
 ## Installation
 
@@ -44,7 +42,8 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 {
   "MaraniMatias/codereview.nvim",
   dependencies = {
-    "nvim-telescope/telescope.nvim",
+    "nvim-telescope/telescope.nvim", -- optional
+    "nvim-tree/nvim-web-devicons", -- optional
   },
   config = function()
     require("codereview").setup({})
@@ -57,7 +56,7 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 ```lua
 require("codereview").setup({
   diff_view = "unified", -- "split" is planned, not implemented yet
-  explorer_width = 30,
+  explorer_width = 40,
   max_diff_lines = 1200, -- initial visible diff lines before truncation
   diff_page_size = 400,  -- extra lines revealed per load-more action
 
@@ -221,4 +220,4 @@ function handleUser(user) {
 
 ## Acknowledgements
 
-This plugin was inspired by the talk _"Programar en 2026: the human-in-the-loop"_ at [JSConf ES](https://www.jsconf.es) by Javi Velasco [https://github.com/javivelasco](@javivelasco).
+This plugin was inspired by the talk _"Programar en 2026: the human-in-the-loop"_ at [JSConf ES](https://www.jsconf.es) by Javi Velasco [@javivelasco](https://github.com/javivelasco).
