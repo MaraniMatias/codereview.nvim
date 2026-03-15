@@ -4,6 +4,25 @@ local store = require("codereview.notes.store")
 -- Currently open float context
 local float_ctx = nil
 
+-- Ask user whether to save or discard the current note (callable externally)
+function M.ask_save_or_discard()
+  if not float_ctx then return end
+  local ctx = float_ctx
+  local lines = vim.api.nvim_buf_get_lines(ctx.buf, ctx.edit_start_line - 1, -1, false)
+  local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+  if text == "" then
+    M.close()
+    return
+  end
+  local choice = vim.fn.confirm("Save note?", "&Yes\n&No\n&Cancel", 1)
+  if choice == 1 then
+    M.confirm()
+  elseif choice == 2 then
+    M.close()
+  end
+  -- 0 or 3 (Cancel): stay in float
+end
+
 -- Open the note floating window
 -- filepath: file being annotated
 -- line_start, line_end: line range
@@ -70,9 +89,9 @@ function M.open(filepath, line_start, line_end, code, existing_text)
     col = col,
     style = "minimal",
     border = "rounded",
-    title = " Add Note ",
+    title = existing_text and " Edit Note " or " Add Note ",
     title_pos = "center",
-    footer = " w save  ·  <Esc> save?  ·  q cancel ",
+    footer = " w save  ·  <Esc> save?  ·  q discard ",
     footer_pos = "center",
   })
 
@@ -105,24 +124,6 @@ function M.open(filepath, line_start, line_end, code, existing_text)
   -- Keymaps
   local opts = { noremap = true, silent = true, buffer = buf }
 
-  local function ask_save_or_discard()
-    if not float_ctx then return end
-    local ctx = float_ctx
-    local lines = vim.api.nvim_buf_get_lines(ctx.buf, ctx.edit_start_line - 1, -1, false)
-    local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
-    if text == "" then
-      M.close()
-      return
-    end
-    local choice = vim.fn.confirm("Save note?", "&Yes\n&No\n&Cancel", 1)
-    if choice == 1 then
-      M.confirm()
-    elseif choice == 2 then
-      M.close()
-    end
-    -- 0 or 3 (Cancel): stay in float
-  end
-
   -- Save with w (like :w in vim), normal mode only
   vim.keymap.set("n", "w", function()
     M.confirm()
@@ -131,12 +132,12 @@ function M.open(filepath, line_start, line_end, code, existing_text)
   -- Esc in insert mode: exit insert then ask save/discard
   vim.keymap.set("i", "<Esc>", function()
     vim.cmd("stopinsert")
-    vim.schedule(ask_save_or_discard)
+    vim.schedule(M.ask_save_or_discard)
   end, opts)
 
   -- Esc in normal mode: ask save/discard
   vim.keymap.set("n", "<Esc>", function()
-    ask_save_or_discard()
+    M.ask_save_or_discard()
   end, opts)
 
   -- q: discard without asking

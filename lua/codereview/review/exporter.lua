@@ -14,7 +14,7 @@ function M.generate()
 	local all_notes = store.get_all()
 
 	if #all_notes == 0 then
-		table.insert(lines, "_No notes added._")
+		table.insert(lines, "_Write your notes here._")
 		table.insert(lines, "")
 	else
 		local current_file = nil
@@ -42,6 +42,8 @@ function M.generate()
 				table.insert(lines, "```")
 				table.insert(lines, "")
 			end
+
+			table.insert(lines, "Note:\n")
 
 			for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
 				table.insert(lines, "> " .. text_line)

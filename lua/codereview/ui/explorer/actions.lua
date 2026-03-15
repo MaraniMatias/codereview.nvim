@@ -175,7 +175,7 @@ end
 
 function M.quit()
   if note_float.is_open() then
-    note_float.close()
+    note_float.ask_save_or_discard()
     return
   end
   layout.safe_close(false)

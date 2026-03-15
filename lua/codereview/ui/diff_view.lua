@@ -67,7 +67,7 @@ local function get_load_more_key()
 end
 
 local function get_truncation_line()
-  return "(diff truncado, presiona " .. get_load_more_key() .. " para cargar mas)"
+  return "(diff truncated, press " .. get_load_more_key() .. " to load more)"
 end
 
 local function build_full_display(parsed)
@@ -514,7 +514,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", km.quit, function()
     local note_float = require("codereview.ui.note_float")
     if note_float.is_open() then
-      note_float.close()
+      note_float.ask_save_or_discard()
       return
     end
     layout.safe_close(false)
