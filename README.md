@@ -44,6 +44,8 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 require("codereview").setup({
   diff_view = "unified", -- "split" is planned, not implemented yet
   explorer_width = 30,
+  max_diff_lines = 1200, -- initial visible diff lines before truncation
+  diff_page_size = 400,  -- extra lines revealed per load-more action
 
   keymaps = {
     note = "n",                    -- smart add/edit note on current line
@@ -58,6 +60,7 @@ require("codereview").setup({
     quit = "q",
     toggle_notes = "za",
     refresh = "R",
+    load_more_diff = "L",         -- reveal more lines when a diff is truncated
   },
 
   review = {
@@ -68,6 +71,8 @@ require("codereview").setup({
 ```
 
 Default keymap contract: `<Tab>` cycles focus between explorer and diff, and `za` expands or collapses note groups in the explorer. Both can be remapped in `keymaps`.
+
+Large diffs keep the current behavior when they fit within `max_diff_lines`. When a diff exceeds that limit, CodeReview renders the first slice, shows a truncation sentinel at the bottom, and each `load_more_diff` action reveals another `diff_page_size` lines.
 
 ## Usage
 
@@ -101,6 +106,8 @@ Or use the wrapper shipped in `bin/codereview`:
 [difftool "codereview"]
     cmd = /path/to/codereview/bin/codereview "$LOCAL" "$REMOTE"
 ```
+
+The wrapper automatically captures `$MERGED` from git's environment to build a stable, repo-relative file identity — preventing note collisions when multiple files share the same basename (e.g. `src/utils/helpers.js` vs `src/components/helpers.js`).
 
 Examples:
 
@@ -148,6 +155,7 @@ You can remap either `cycle_focus` or `toggle_notes` in your config.
 | `V` then `n` | Add note from visual selection         |
 | `]n` / `[n`  | Next or previous note in current file  |
 | `]f` / `[f`  | Next or previous file                  |
+| `L`          | Load more lines for a truncated diff   |
 | `<leader>uh` | Toggle virtual text notes              |
 | `<Space>n`   | Open Telescope notes picker            |
 | `<Tab>`      | Focus explorer panel                   |

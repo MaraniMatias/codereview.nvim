@@ -175,7 +175,8 @@ end
 
 --- Open as git difftool
 --- Called from git difftool with LOCAL and REMOTE paths
-function M.difftool(local_path, remote_path)
+--- merged_path (optional): $MERGED from git env; used to derive a stable repo-relative identity
+function M.difftool(local_path, remote_path, merged_path)
   local layout = require("codereview.ui.layout")
   if layout.is_open() or opening then
     vim.notify("codereview is already open", vim.log.levels.WARN)
@@ -217,17 +218,31 @@ function M.difftool(local_path, remote_path)
       git.scan_dir_diff(local_path, remote_path, finish)
     end)
   else
-    local rel_path = vim.fn.fnamemodify(remote_path, ":t")
-    s.root = vim.fn.getcwd()
-    finish({
-      {
-        path = rel_path,
-        status = "M",
-        local_file = local_path,
-        remote_file = remote_path,
-        expanded = false,
-      }
-    })
+    -- Resolve merged path: explicit arg > CODEREVIEW_MERGED env > MERGED env (set by git)
+    local merged = (merged_path and merged_path ~= "" and merged_path)
+      or (vim.env.CODEREVIEW_MERGED ~= "" and vim.env.CODEREVIEW_MERGED or nil)
+      or (vim.env.MERGED and vim.env.MERGED ~= "" and vim.env.MERGED or nil)
+
+    if merged then
+      -- Derive repo-relative path from $MERGED for stable, collision-free identity
+      git.get_repo_root(vim.fn.fnamemodify(merged, ":h"), function(root)
+        local rel
+        if root and merged:sub(1, #root) == root then
+          rel = merged:sub(#root + 2)   -- strip "root/" prefix
+          s.root = root
+        else
+          -- git root not found: use $MERGED basename (better than temp path basename)
+          rel = vim.fn.fnamemodify(merged, ":t")
+          s.root = vim.fn.getcwd()
+        end
+        finish({ { path = rel, status = "M", local_file = local_path, remote_file = remote_path, expanded = false } })
+      end)
+    else
+      -- Fallback without $MERGED: use basename of remote_path (original behavior)
+      local rel_path = vim.fn.fnamemodify(remote_path, ":t")
+      s.root = vim.fn.getcwd()
+      finish({ { path = rel_path, status = "M", local_file = local_path, remote_file = remote_path, expanded = false } })
+    end
   end
 end
 

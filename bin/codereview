@@ -7,10 +7,13 @@
 #   [difftool]
 #       prompt = false
 #
+# $MERGED is captured from git's environment and used to derive a stable,
+# repo-relative file identity (avoids basename collisions across directories).
+#
 # Usage:
 #   git difftool --dir-diff -t codereview
 #   git difftool --dir-diff --cached -t codereview
 #   git difftool --dir-diff -t codereview main..feature-branch
 
-CODEREVIEW_LOCAL="$1" CODEREVIEW_REMOTE="$2" \
-  exec nvim -c "lua require('codereview').difftool(vim.env.CODEREVIEW_LOCAL, vim.env.CODEREVIEW_REMOTE)"
+CODEREVIEW_LOCAL="$1" CODEREVIEW_REMOTE="$2" CODEREVIEW_MERGED="${MERGED:-}" \
+  exec nvim -c "lua require('codereview').difftool(vim.env.CODEREVIEW_LOCAL, vim.env.CODEREVIEW_REMOTE, vim.env.CODEREVIEW_MERGED)"
