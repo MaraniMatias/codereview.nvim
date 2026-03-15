@@ -28,18 +28,21 @@ end
 -- line_start, line_end: line range
 -- code: code context string
 -- existing_text: text for editing existing note (nil for new)
-function M.open(filepath, line_start, line_end, code, existing_text)
+function M.open(filepath, line_start, line_end, code, existing_text, side)
   if float_ctx then
     M.close()
   end
+
+  side = side or "new"
 
   -- Detect language from filepath
   local ext = filepath:match("%.([^%.]+)$") or ""
 
   -- Build buffer content
+  local side_label = side == "old" and " (deleted)" or ""
   local header_lines = {
     "# Note — " .. filepath .. " L" .. line_start ..
-      (line_end and line_end ~= line_start and ("-" .. line_end) or ""),
+      (line_end and line_end ~= line_start and ("-" .. line_end) or "") .. side_label,
     "",
   }
 
@@ -109,6 +112,7 @@ function M.open(filepath, line_start, line_end, code, existing_text)
     line_start = line_start,
     line_end = line_end,
     code = code,
+    side = side,
     edit_start_line = edit_start_line,
   }
 
@@ -172,7 +176,7 @@ function M.confirm()
   end
 
   -- Save the note
-  store.set(ctx.filepath, ctx.line_start, ctx.line_end, ctx.code, text)
+  store.set(ctx.filepath, ctx.line_start, ctx.line_end, ctx.code, text, ctx.side)
 
   -- Close float
   float_ctx = nil
@@ -193,7 +197,20 @@ function M.confirm()
   require("codereview.ui.diff_view").refresh_notes()
   require("codereview.ui.explorer").render()
 
-  vim.notify("Note saved for L" .. ctx.line_start, vim.log.levels.INFO)
+  -- Mark buffers as modified so :wq triggers BufWriteCmd
+  for _, buf_key in ipairs({ "diff", "explorer" }) do
+    local buf = s.buffers[buf_key]
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      pcall(function()
+        vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+        vim.api.nvim_set_option_value("modified", true, { buf = buf })
+        vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+      end)
+    end
+  end
+
+  local side_suffix = ctx.side == "old" and " (deleted)" or ""
+  vim.notify("Note saved for L" .. ctx.line_start .. side_suffix, vim.log.levels.INFO)
 end
 
 function M.is_open()

@@ -42,7 +42,11 @@ function M.set_extmark(buf, lnum, note, extmark_id)
   end
   -- Remove newlines from virtual text display
   text = text:gsub("\n", " ")
-  local virt_text = { { "  ~ " .. text, "Comment" } }
+
+  local is_old = (note.side or "new") == "old"
+  local prefix = is_old and "  ~ [deleted] " or "  ~ "
+  local hl = is_old and "DiagnosticInfo" or "Comment"
+  local virt_text = { { prefix .. text, hl } }
 
   local opts = {
     virt_text = virt_text,
@@ -67,12 +71,13 @@ function M.clear_extmarks(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 end
 
--- display: diff view state with visible new_to_display mapping
+-- display: diff view state with visible new_to_display and old_to_display mappings
 function M.render_notes(buf, filepath, display)
   if not vim.api.nvim_buf_is_valid(buf) then return end
 
   display = display or {}
   local new_to_display = display.new_to_display or {}
+  local old_to_display = display.old_to_display or {}
   local buf_extmarks = diff_state.get_visible_extmarks(buf)
   local current_extmarks = buf_extmarks[filepath] or {}
   local next_extmarks = {}
@@ -85,18 +90,29 @@ function M.render_notes(buf, filepath, display)
 
   local notes = store.get_for_file(filepath)
   for _, note in ipairs(notes) do
-    local display_lnum = new_to_display[note.line_start]
+    local side = note.side or "new"
+    local composite_key
+    local display_lnum
+
+    if side == "old" then
+      composite_key = "old:" .. note.line_start
+      display_lnum = old_to_display[note.line_start]
+    else
+      composite_key = note.line_start
+      display_lnum = new_to_display[note.line_start]
+    end
+
     if display_lnum then
       -- display_lnum is 1-based, extmark needs 0-based
-      local extmark_id = M.set_extmark(buf, display_lnum - 1, note, current_extmarks[note.line_start])
+      local extmark_id = M.set_extmark(buf, display_lnum - 1, note, current_extmarks[composite_key])
       if extmark_id then
-        next_extmarks[note.line_start] = extmark_id
+        next_extmarks[composite_key] = extmark_id
       end
     end
   end
 
-  for line_start, extmark_id in pairs(current_extmarks) do
-    if next_extmarks[line_start] == nil then
+  for key, extmark_id in pairs(current_extmarks) do
+    if next_extmarks[key] == nil then
       M.del_extmark(buf, extmark_id)
     end
   end

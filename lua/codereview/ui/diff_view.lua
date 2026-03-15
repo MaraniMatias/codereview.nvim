@@ -12,6 +12,18 @@ local treesitter_max_lines = 5000
 local _ts_lang_cache = {}   -- buf -> lang string | false
 local _hl_cache = {}        -- buf -> concat key string
 
+local function update_diff_title(file)
+  if not file then return end
+  local s = state.get()
+  local win = s.windows.diff
+  if win and vim.api.nvim_win_is_valid(win) then
+    pcall(vim.api.nvim_win_set_config, win, {
+      title = " " .. file.path .. " ",
+      title_pos = "center",
+    })
+  end
+end
+
 local function get_line_type(l)
   return l:sub(1, 1)
 end
@@ -82,6 +94,9 @@ local function build_full_display(parsed)
 
   local all_line_map = {}
   local all_new_to_display = {}
+  local all_old_line_map = {}
+  local all_old_to_display = {}
+  local all_line_type_map = {}
   local display_lnum = 1 + header_offset
 
   for _, hunk in ipairs(parsed.hunks) do
@@ -90,6 +105,16 @@ local function build_full_display(parsed)
       if l.new_lnum then
         all_line_map[display_lnum] = l.new_lnum
         all_new_to_display[l.new_lnum] = display_lnum
+      end
+      if l.old_lnum and not l.new_lnum then
+        -- Deleted line: only has old_lnum
+        all_old_line_map[display_lnum] = l.old_lnum
+        all_old_to_display[l.old_lnum] = display_lnum
+        all_line_type_map[display_lnum] = "del"
+      elseif l.new_lnum and not l.old_lnum then
+        all_line_type_map[display_lnum] = "add"
+      elseif l.new_lnum and l.old_lnum then
+        all_line_type_map[display_lnum] = "ctx"
       end
       display_lnum = display_lnum + 1
     end
@@ -100,6 +125,9 @@ local function build_full_display(parsed)
     all_line_types = all_line_types,
     all_line_map = all_line_map,
     all_new_to_display = all_new_to_display,
+    all_old_line_map = all_old_line_map,
+    all_old_to_display = all_old_to_display,
+    all_line_type_map = all_line_type_map,
   }
 end
 
@@ -154,9 +182,7 @@ local function render_current_display(buf, file, opts)
     virtual.clear_extmarks(buf)
   end
 
-  if file then
-    pcall(vim.api.nvim_buf_set_name, buf, "codereview://" .. file.path)
-  end
+  update_diff_title(file)
 
   if opts.cursor_lnum and win and vim.api.nvim_win_is_valid(win) then
     set_window_cursor(win, buf, opts.cursor_lnum, 0)
@@ -218,6 +244,19 @@ function M.show_file(idx)
   -- Prevent re-triggering a load that is already in progress for this file
   if _loading_idx == idx then return end
 
+  -- Short-circuit for binary files: show placeholder without loading diff
+  if file.is_binary then
+    _loading_idx = nil
+    s.current_file_idx = idx
+    diff_request_id = diff_request_id + 1
+    reset_display()
+    virtual.clear_extmarks(buf)
+    set_buffer_lines(buf, { "  (binary file -- diff not available)" })
+    update_diff_title(file)
+    focus_top(s.windows.diff)
+    return
+  end
+
   _loading_idx = idx
   s.current_file_idx = idx
   diff_request_id = diff_request_id + 1
@@ -227,16 +266,15 @@ function M.show_file(idx)
   virtual.clear_extmarks(buf)
   set_buffer_lines(buf, { "  (loading diff...)" })
   _hl_cache[buf] = nil   -- force re-apply when file arrives
-  pcall(vim.api.nvim_buf_set_name, buf, "codereview://" .. file.path)
+  update_diff_title(file)
   focus_top(s.windows.diff)
 
   M._get_diff_for_file(file, function(diff_text)
-    local current_state = state.get()
-    local current_file = current_state.files[current_state.current_file_idx]
     if request_id ~= diff_request_id then return end
     _loading_idx = nil
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
-    if not current_file or current_file.path ~= file.path then return end
+
+    local current_state = state.get()
 
     if diff_text == nil then
       reset_display()
@@ -261,6 +299,9 @@ function M.show_file(idx)
       all_line_types = full_display.all_line_types,
       all_line_map = full_display.all_line_map,
       all_new_to_display = full_display.all_new_to_display,
+      all_old_line_map = full_display.all_old_line_map,
+      all_old_to_display = full_display.all_old_to_display,
+      all_line_type_map = full_display.all_line_type_map,
       visible_until = get_initial_visible_until(full_display.all_line_types, limits.max_diff_lines),
       truncation_line = get_truncation_line(),
     })
@@ -433,6 +474,105 @@ function M.get_code_context(line_start, line_end)
   return table.concat(code_lines, "\n")
 end
 
+-- Get line info for the current cursor position: { lnum, side, type }
+function M.get_current_line_info()
+  local s = state.get()
+  local display = diff_state.get()
+  if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then
+    return nil
+  end
+
+  local cursor = vim.api.nvim_win_get_cursor(s.windows.diff)
+  local display_lnum = cursor[1]
+
+  local new_lnum = display.line_map[display_lnum]
+  if new_lnum then
+    return { lnum = new_lnum, side = "new", type = display.line_type_map[display_lnum] or "ctx" }
+  end
+
+  local old_lnum = display.old_line_map[display_lnum]
+  if old_lnum then
+    return { lnum = old_lnum, side = "old", type = "del" }
+  end
+
+  return nil
+end
+
+-- Get code context for deleted (old-side) lines
+function M.get_code_context_old(line_start, line_end)
+  local display = diff_state.get()
+  local result = {}
+  line_end = line_end or line_start
+
+  for display_lnum, old_lnum in pairs(display.all_old_line_map) do
+    if old_lnum >= line_start and old_lnum <= line_end then
+      result[display_lnum] = display.all_lines[display_lnum]
+    end
+  end
+
+  local keys = {}
+  for k in pairs(result) do table.insert(keys, k) end
+  table.sort(keys)
+
+  local code_lines = {}
+  for _, k in ipairs(keys) do
+    local line = result[k]
+    local ltype = get_line_type(line)
+    if ltype == "+" or ltype == "-" or ltype == " " then
+      line = line:sub(2)
+    end
+    table.insert(code_lines, line)
+  end
+
+  return table.concat(code_lines, "\n")
+end
+
+-- Dispatch to the right code context getter based on side
+function M.get_code_context_for_side(line_start, line_end, side)
+  if side == "old" then
+    return M.get_code_context_old(line_start, line_end)
+  end
+  return M.get_code_context(line_start, line_end)
+end
+
+-- Jump to the display line nearest to old_lnum (deleted lines)
+function M.jump_to_old_line(old_lnum)
+  local s = state.get()
+  local display = diff_state.get()
+
+  if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then
+    return
+  end
+
+  if #display.all_lines == 0 then
+    return
+  end
+
+  local target_display = display.all_old_to_display[old_lnum] or find_best_display_line(display.all_old_to_display, old_lnum)
+  if not target_display then
+    return
+  end
+
+  ensure_display_line_visible(target_display, { preserve_cursor = true })
+
+  display = diff_state.get()
+  local best_line = display.old_to_display[old_lnum] or find_best_display_line(display.old_to_display, old_lnum)
+  if not best_line then
+    best_line = math.min(target_display, math.max(1, #display.lines))
+  end
+
+  vim.api.nvim_win_set_cursor(s.windows.diff, { best_line, 0 })
+end
+
+-- Jump to a line by side
+function M.jump_to_line_sided(lnum, side)
+  if side == "old" then
+    M.jump_to_old_line(lnum)
+  else
+    M.jump_to_line(lnum)
+  end
+end
+
 -- Setup keymaps for the diff buffer
 function M.setup_keymaps(buf)
   local cfg = config.options
@@ -440,14 +580,14 @@ function M.setup_keymaps(buf)
   local opts = { noremap = true, silent = true, nowait = true, buffer = buf }
 
   vim.keymap.set("n", km.note, function()
-    local new_lnum = M.get_current_lnum()
-    if not new_lnum then return end
+    local info = M.get_current_line_info()
+    if not info then return end
     local s = state.get()
     local file = s.files[s.current_file_idx]
     if not file then return end
-    local existing = require("codereview.notes.store").get(file.path, new_lnum)
-    local code = M.get_code_context(new_lnum, new_lnum)
-    require("codereview.ui.note_float").open(file.path, new_lnum, new_lnum, code, existing and existing.text)
+    local existing = require("codereview.notes.store").get(file.path, info.lnum, info.side)
+    local code = M.get_code_context_for_side(info.lnum, info.lnum, info.side)
+    require("codereview.ui.note_float").open(file.path, info.lnum, info.lnum, code, existing and existing.text, info.side)
   end, opts)
 
   vim.keymap.set("v", km.note, function()
@@ -456,8 +596,18 @@ function M.setup_keymaps(buf)
     local vend = vim.fn.line(".")
     if vstart > vend then vstart, vend = vend, vstart end
 
-    local lnum_start = display.line_map[vstart]
-    local lnum_end = display.line_map[vend]
+    -- Detect side from first selected line
+    local first_type = display.line_type_map[vstart]
+    local side = (first_type == "del") and "old" or "new"
+
+    local lnum_start, lnum_end
+    if side == "old" then
+      lnum_start = display.old_line_map[vstart]
+      lnum_end = display.old_line_map[vend]
+    else
+      lnum_start = display.line_map[vstart]
+      lnum_end = display.line_map[vend]
+    end
     if not lnum_start then return end
     lnum_end = lnum_end or lnum_start
 
@@ -465,8 +615,8 @@ function M.setup_keymaps(buf)
     local file = s.files[s.current_file_idx]
     if not file then return end
 
-    local code = M.get_code_context(lnum_start, lnum_end)
-    require("codereview.ui.note_float").open(file.path, lnum_start, lnum_end, code)
+    local code = M.get_code_context_for_side(lnum_start, lnum_end, side)
+    require("codereview.ui.note_float").open(file.path, lnum_start, lnum_end, code, nil, side)
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
   end, opts)
 
@@ -530,45 +680,63 @@ function M.setup_keymaps(buf)
   layout.setup_write_handlers(buf)
 end
 
+local function get_note_display_pos(note, display)
+  local side = note.side or "new"
+  if side == "old" then
+    return display.all_old_to_display[note.line_start]
+  end
+  return display.all_new_to_display[note.line_start]
+end
+
 function M._jump_note(direction)
   local s = state.get()
   local store = require("codereview.notes.store")
   local file = s.files[s.current_file_idx]
   if not file then return end
 
+  local display = diff_state.get()
   local notes = store.get_for_file(file.path)
-  local current_lnum = M.get_current_lnum() or 0
+
+  -- Get current display position for comparison
+  local current_display_pos = 0
+  if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
+    current_display_pos = vim.api.nvim_win_get_cursor(s.windows.diff)[1]
+  end
+
   local target_note = nil
 
-  -- Search in current file first
+  -- Search in current file first, comparing by display position
   if direction > 0 then
+    local best_pos = math.huge
     for _, note in ipairs(notes) do
-      if note.line_start > current_lnum then
+      local pos = get_note_display_pos(note, display)
+      if pos and pos > current_display_pos and pos < best_pos then
+        best_pos = pos
         target_note = note
-        break
       end
     end
   else
-    for i = #notes, 1, -1 do
-      if notes[i].line_start < current_lnum then
-        target_note = notes[i]
-        break
+    local best_pos = -1
+    for _, note in ipairs(notes) do
+      local pos = get_note_display_pos(note, display)
+      if pos and pos < current_display_pos and pos > best_pos then
+        best_pos = pos
+        target_note = note
       end
     end
   end
 
   if target_note then
-    M.jump_to_line(target_note.line_start)
+    M.jump_to_line_sided(target_note.line_start, target_note.side or "new")
     return
   end
 
   -- No match in current file — search other files
   local num_files = #s.files
   if num_files <= 1 then
-    -- Only one file: wrap within it (original behavior)
     if #notes > 0 then
       local wrap_note = direction > 0 and notes[1] or notes[#notes]
-      M.jump_to_line(wrap_note.line_start)
+      M.jump_to_line_sided(wrap_note.line_start, wrap_note.side or "new")
     end
     return
   end
@@ -582,7 +750,7 @@ function M._jump_note(direction)
       if #next_notes > 0 then
         local target = direction > 0 and next_notes[1] or next_notes[#next_notes]
         explorer.preview_action({ type = "file", idx = next_idx }, { move_cursor = true })
-        M.jump_to_line(target.line_start)
+        M.jump_to_line_sided(target.line_start, target.side or "new")
         return
       end
     end
@@ -591,7 +759,7 @@ function M._jump_note(direction)
   -- No notes in any other file: wrap within current file
   if #notes > 0 then
     local wrap_note = direction > 0 and notes[1] or notes[#notes]
-    M.jump_to_line(wrap_note.line_start)
+    M.jump_to_line_sided(wrap_note.line_start, wrap_note.side or "new")
   end
 end
 

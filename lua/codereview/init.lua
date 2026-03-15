@@ -21,6 +21,14 @@ local function normalize_files(files)
   return files
 end
 
+local function mark_binary_files(files, binaries)
+  for _, file in ipairs(files) do
+    if binaries[file.path] then
+      file.is_binary = true
+    end
+  end
+end
+
 local function open_layout(message)
   local layout = require("codereview.ui.layout")
   local explorer = require("codereview.ui.explorer")
@@ -163,9 +171,12 @@ function M.open(args)
         return
       end
 
-      s.files = normalize_files(files)
-      s.current_file_idx = 1
-      open_layout("codereview: " .. #files .. " changed file(s) | " .. args_display)
+      git.get_binary_files(root, s.diff_args, function(binaries)
+        mark_binary_files(files, binaries)
+        s.files = normalize_files(files)
+        s.current_file_idx = 1
+        open_layout("codereview: " .. #files .. " changed file(s) | " .. args_display)
+      end)
     end)
   end)
 end
@@ -250,9 +261,12 @@ function M.difftool(local_path, remote_path, merged_path)
           vim.notify("No changed files found", vim.log.levels.INFO)
           return
         end
-        s.files = normalize_files(all_files)
-        s.current_file_idx = current_idx
-        open_layout("codereview difftool: " .. #s.files .. " file(s)")
+        git.get_binary_files(s.root, {}, function(binaries)
+          mark_binary_files(all_files, binaries)
+          s.files = normalize_files(all_files)
+          s.current_file_idx = current_idx
+          open_layout("codereview difftool: " .. #s.files .. " file(s)")
+        end)
       end)
     end
 
@@ -315,7 +329,16 @@ function M.refresh()
   end
 
   if s.mode == "review" then
-    git.get_changed_files(s.root, s.diff_args, apply_refresh)
+    git.get_changed_files(s.root, s.diff_args, function(files)
+      if not files then
+        apply_refresh(nil)
+        return
+      end
+      git.get_binary_files(s.root, s.diff_args, function(binaries)
+        mark_binary_files(files, binaries)
+        apply_refresh(files)
+      end)
+    end)
   elseif s.mode == "difftool" and s.local_dir and s.remote_dir then
     git.scan_dir_diff(s.local_dir, s.remote_dir, apply_refresh)
   else

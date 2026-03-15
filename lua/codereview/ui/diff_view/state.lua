@@ -14,7 +14,13 @@ local function ensure_diff_state()
     all_line_types = {},
     all_line_map = {},
     all_new_to_display = {},
-    visible_extmarks = {}, -- visible_extmarks[buf][filepath][line_start] = extmark_id
+    all_old_line_map = {},
+    all_old_to_display = {},
+    all_line_type_map = {},
+    old_line_map = {},
+    old_to_display = {},
+    line_type_map = {},
+    visible_extmarks = {}, -- visible_extmarks[buf][filepath][key] = extmark_id
     visible_until = 0,
     is_truncated = false,
     truncation_line = nil,
@@ -34,6 +40,9 @@ local function rebuild_visible_slice(diff)
   local line_types = {}
   local line_map = {}
   local new_to_display = {}
+  local old_line_map = {}
+  local old_to_display = {}
+  local line_type_map = {}
 
   for display_lnum = 1, visible_until do
     lines[display_lnum] = diff.all_lines[display_lnum]
@@ -43,6 +52,17 @@ local function rebuild_visible_slice(diff)
     if new_lnum then
       line_map[display_lnum] = new_lnum
       new_to_display[new_lnum] = display_lnum
+    end
+
+    local old_lnum = diff.all_old_line_map[display_lnum]
+    if old_lnum then
+      old_line_map[display_lnum] = old_lnum
+      old_to_display[old_lnum] = display_lnum
+    end
+
+    local ltype = diff.all_line_type_map[display_lnum]
+    if ltype then
+      line_type_map[display_lnum] = ltype
     end
   end
 
@@ -55,6 +75,9 @@ local function rebuild_visible_slice(diff)
   diff.line_types = line_types
   diff.line_map = line_map
   diff.new_to_display = new_to_display
+  diff.old_line_map = old_line_map
+  diff.old_to_display = old_to_display
+  diff.line_type_map = line_type_map
 end
 
 function M.get()
@@ -71,6 +94,12 @@ function M.reset()
   diff.all_line_types = {}
   diff.all_line_map = {}
   diff.all_new_to_display = {}
+  diff.all_old_line_map = {}
+  diff.all_old_to_display = {}
+  diff.all_line_type_map = {}
+  diff.old_line_map = {}
+  diff.old_to_display = {}
+  diff.line_type_map = {}
   diff.visible_extmarks = {}
   diff.visible_until = 0
   diff.is_truncated = false
@@ -84,6 +113,9 @@ function M.set(display)
   diff.all_line_types = display.all_line_types or {}
   diff.all_line_map = display.all_line_map or {}
   diff.all_new_to_display = display.all_new_to_display or {}
+  diff.all_old_line_map = display.all_old_line_map or {}
+  diff.all_old_to_display = display.all_old_to_display or {}
+  diff.all_line_type_map = display.all_line_type_map or {}
   diff.visible_until = display.visible_until or #diff.all_lines
   if display.truncation_line ~= nil then
     diff.truncation_line = display.truncation_line

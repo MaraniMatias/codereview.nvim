@@ -9,21 +9,31 @@ local _sorted_cache = {}   -- filepath -> sorted notes array
 --   line_end = 42,
 --   code = "const result = a + b;",
 --   text = "revisar este cálculo",
+--   side = "new" | "old",
 -- }
 
+local function make_key(line_start, side)
+  if side == "old" then
+    return "old:" .. line_start
+  end
+  return line_start
+end
+
 -- Add or update a note
-function M.set(filepath, line_start, line_end, code, text)
+function M.set(filepath, line_start, line_end, code, text, side)
   local s = state.get()
   if not s.notes[filepath] then
     s.notes[filepath] = {}
   end
-  local key = line_start
+  side = side or "new"
+  local key = make_key(line_start, side)
   s.notes[filepath][key] = {
     filepath = filepath,
     line_start = line_start,
     line_end = line_end or line_start,
     code = code or "",
     text = text,
+    side = side,
   }
   s.notes_dirty = true
   _sorted_cache[filepath] = nil
@@ -31,17 +41,19 @@ function M.set(filepath, line_start, line_end, code, text)
 end
 
 -- Get a note by filepath and line
-function M.get(filepath, line)
+function M.get(filepath, line, side)
   local s = state.get()
   if not s.notes[filepath] then return nil end
-  return s.notes[filepath][line]
+  local key = make_key(line, side or "new")
+  return s.notes[filepath][key]
 end
 
 -- Delete a note
-function M.delete(filepath, line)
+function M.delete(filepath, line, side)
   local s = state.get()
   if s.notes[filepath] then
-    s.notes[filepath][line] = nil
+    local key = make_key(line, side or "new")
+    s.notes[filepath][key] = nil
     s.notes_dirty = true
     _sorted_cache[filepath] = nil
   end
@@ -56,7 +68,12 @@ function M.get_for_file(filepath)
   for _, note in pairs(s.notes[filepath]) do
     table.insert(notes, note)
   end
-  table.sort(notes, function(a, b) return a.line_start < b.line_start end)
+  table.sort(notes, function(a, b)
+    if a.line_start ~= b.line_start then
+      return a.line_start < b.line_start
+    end
+    return (a.side or "new") < (b.side or "new")
+  end)
   _sorted_cache[filepath] = notes
   return notes
 end
@@ -78,7 +95,10 @@ function M.get_all()
     if a.filepath ~= b.filepath then
       return a.filepath < b.filepath
     end
-    return a.line_start < b.line_start
+    if a.line_start ~= b.line_start then
+      return a.line_start < b.line_start
+    end
+    return (a.side or "new") < (b.side or "new")
   end)
   return all
 end

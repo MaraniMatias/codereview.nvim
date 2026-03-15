@@ -16,7 +16,7 @@ local function action_key(action)
     return "file:" .. action.idx
   end
   if action.type == "note" then
-    return "note:" .. action.filepath .. ":" .. action.line
+    return "note:" .. action.filepath .. ":" .. action.line .. ":" .. (action.side or "new")
   end
   return nil
 end
@@ -48,7 +48,7 @@ function M.select_file(idx)
     return
   end
   if opts.move_cursor == nil then
-    opts.move_cursor = true
+    opts.move_cursor = not opts.preserve_cursor
   end
 
   local win = s.windows.explorer
@@ -102,7 +102,7 @@ function M.preview_action(action, opts)
     if file_idx ~= prev_file_idx or #diff_state.get().all_lines == 0 then
       diff_view.show_file(file_idx)
     end
-    diff_view.jump_to_line(action.line)
+    diff_view.jump_to_line_sided(action.line, action.side or "new")
   else
     return
   end

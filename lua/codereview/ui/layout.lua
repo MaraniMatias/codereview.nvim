@@ -8,6 +8,8 @@ local active_session_id = 0
 local blocked_close_session_id = nil
 local teardown_in_progress = false
 local teardown_scheduled = false
+local write_in_progress = false
+local pending_close_after_save = false
 local setup_lifecycle_autocmds
 
 local function is_valid_window(win)
@@ -453,10 +455,21 @@ function M.close(force)
 
   require("codereview.ui.diff_view").clear()
 
+  for _, key in ipairs({ "diff", "explorer" }) do
+    local win = s.windows[key]
+    if is_valid_window(win) then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
+  end
+
   -- In difftool mode: exit Neovim completely (tabclose fails on single-tab)
   if s.mode == "difftool" then
-    finalize_close(prev_win)
+    -- teardown_in_progress must stay true while qa runs so that
+    -- QuitPre handlers on the plugin buffers return early instead
+    -- of aborting the quit.  finalize_close resets the flag, so
+    -- call it AFTER qa (it is only reached if qa fails for some reason).
     pcall(vim.cmd, force and "qa!" or "qa")
+    finalize_close(prev_win)
     return true
   end
 
@@ -492,7 +505,7 @@ function M.safe_close(force)
     )
     return false
   end
-  return M.close(force)
+  return M.close(true)
 end
 
 -- Intercept :w for a buffer → save_with_prompt (shows pre-generated name)
@@ -503,7 +516,14 @@ function M.setup_write_handlers(buf)
     group = buffer_handlers_group,
     buffer = buf,
     callback = function()
-      require("codereview.review.exporter").save_with_prompt()
+      write_in_progress = true
+      require("codereview.review.exporter").save_with_prompt(function(success)
+        write_in_progress = false
+        if success and pending_close_after_save then
+          pending_close_after_save = false
+          M.close(false)
+        end
+      end)
       vim.api.nvim_set_option_value("modified", false, { buf = buf })
     end,
   })
@@ -519,6 +539,12 @@ function M.setup_quit_handlers(buf)
     callback = function()
       if teardown_in_progress then return end
 
+      if write_in_progress then
+        vim.v.event.abort = true
+        pending_close_after_save = true
+        return
+      end
+
       local force = vim.v.cmdbang == 1
       local current_win = vim.api.nvim_get_current_win()
 
@@ -529,6 +555,12 @@ function M.setup_quit_handlers(buf)
         if is_valid_window(current_win) then
           pcall(vim.api.nvim_set_current_win, current_win)
         end
+        return
+      end
+
+      -- If the plugin state was already cleaned up (e.g. after a partially
+      -- failed close), don't abort the quit – let Neovim close normally.
+      if not has_layout_state(state.get()) then
         return
       end
 

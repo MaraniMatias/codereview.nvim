@@ -291,6 +291,32 @@ function M.get_changed_files(root, diff_args, callback)
   end)
 end
 
+-- Detect which files are binary using git diff --numstat.
+-- Returns via callback: table (set) of paths that are binary.
+function M.get_binary_files(root, diff_args, callback)
+  local argv = { "diff", "--numstat" }
+  vim.list_extend(argv, diff_args or {})
+
+  M._run(_git_argv(root, argv), function(stdout, exit_code, _)
+    if exit_code ~= 0 then
+      callback({})
+      return
+    end
+
+    local binaries = {}
+    for _, line in ipairs(vim.split(stdout, "\n", { trimempty = true })) do
+      local path = line:match("^%-\t%-\t(.+)$")
+      if path then
+        -- Handle renames: "{prefix/old => prefix/new}" or "old => new"
+        local new_path = path:match("=>%s*(.-)%s*}") or path:match("=>%s*(.+)$")
+        binaries[vim.trim(new_path or path)] = true
+      end
+    end
+
+    callback(binaries)
+  end)
+end
+
 -- Get the old content of a file (before changes).
 -- diff_args: list of git diff arguments used for this review session.
 -- Returns via callback: string content or nil.
@@ -339,7 +365,7 @@ function M.get_file_diff(root, file_entry, diff_args, callback)
     table.insert(clean_args, arg)
   end
 
-  local argv = { "diff" }
+  local argv = { "diff", "--no-ext-diff" }
   vim.list_extend(argv, clean_args)
   table.insert(argv, "--")
   if type(file_entry) == "table" and file_entry.status == "R" and file_entry.old_path then
@@ -349,10 +375,15 @@ function M.get_file_diff(root, file_entry, diff_args, callback)
     table.insert(argv, path)
   end
 
+  local status = type(file_entry) == "table" and file_entry.status or nil
   M._run(_git_argv(root, argv), function(result, exit_code, stderr)
     if exit_code ~= 0 then
       vim.notify(_classify_error(stderr), vim.log.levels.WARN)
       callback(nil)
+      return
+    end
+    if is_binary_diff_output(result, stderr) then
+      callback(build_binary_placeholder("a/" .. path, "b/" .. path, status))
       return
     end
     callback(result)
@@ -459,6 +490,7 @@ function M.scan_dir_diff(local_dir, remote_dir, callback)
               status = "M",
               local_file = local_file,
               remote_file = remote_file,
+              is_binary = result.kind == "binary",
             })
           end
 

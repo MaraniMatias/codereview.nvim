@@ -8,6 +8,14 @@ function M.setup(buf)
   local km = config.options.keymaps
   local opts = { noremap = true, silent = true, nowait = true, buffer = buf }
 
+  vim.keymap.set("n", "j", function()
+    vim.cmd("normal! j")
+    actions.preview_current({ preserve_cursor = true, move_cursor = false })
+  end, opts)
+  vim.keymap.set("n", "k", function()
+    vim.cmd("normal! k")
+    actions.preview_current({ preserve_cursor = true, move_cursor = false })
+  end, opts)
   vim.keymap.set("n", "<CR>", actions.open_current, opts)
   vim.keymap.set("n", "l", actions.open_current, opts)
   vim.keymap.set("n", "h", actions.toggle_notes, opts)

@@ -30,6 +30,7 @@ M.defaults = {
 	review = {
 		default_filename = "review-%Y-%m-%d.md",
 		path = nil, -- nil = git root
+		context_lines = 0, -- extra lines above/below when auto-reading code from disk
 	},
 }
 

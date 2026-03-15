@@ -2,22 +2,7 @@
 
 A Neovim plugin for Git diff-based code review. Navigate changed files, add inline notes on diffs, and export everything to a `review-YYYY-MM-DD.md`. It works both as `:CodeReview` inside Neovim and as `git difftool --dir-diff`.
 
-The current implementation is centered on a two-panel unified diff workflow. `split` view is planned, but not implemented yet.
-
-## Layout
-
-```text
-+---------------------+---------------------------------------+
-|  FILES              |  DIFF (unified)                       |
-|  > [M] src/foo.js   |  @@ -10,4 +10,6 @@                    |
-|    > L42: revisit   |   context line                        |
-|  > [A] src/bar.js   |  -old line                            |
-|  > [D] src/baz.js   |  +new line  ~ revisit                |
-+---------------------+---------------------------------------+
-```
-
-- Left panel: file explorer with badges, note counts, and note entries
-- Right panel: unified diff view with highlights and virtual text notes
+![Screenshot](./docs/screenshot.png)
 
 ## Features
 
@@ -31,6 +16,8 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 - Markdown export with prompt flow and direct `:W` save
 - Unsaved-note protection on close
 - `git difftool --dir-diff` integration
+- Left panel: file explorer with badges, note counts, and note entries
+- Right panel: unified diff view with highlights and virtual text notes
 
 ## Requirements
 

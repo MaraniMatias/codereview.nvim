@@ -48,15 +48,19 @@ function M.build(files, current_file_idx)
 		local note_marker = note_count > 0 and (" (" .. note_count .. ")") or ""
 
 		local file_icon = get_file_icon(file.path)
-		table.insert(lines, marker .. icon .. " " .. file_icon .. file_label(file) .. note_marker)
+		local binary_tag = file.is_binary and " [binary]" or ""
+		table.insert(lines, marker .. icon .. " " .. file_icon .. file_label(file) .. note_marker .. binary_tag)
 		actions_by_line[#lines] = { type = "file", idx = idx }
 
 		if file.expanded then
 			local notes = store.get_for_file(file.path)
 			for _, note in ipairs(notes) do
 				local short = note.text:gsub("\n", " ")
+				local side = note.side or "new"
+				local side_label = side == "old" and " (del)" or ""
 				local note_line = "    ⊳ L"
 					.. note.line_start
+					.. side_label
 					.. ": "
 					.. (short:sub(1, truncate_len) .. (#short > truncate_len and "…" or ""))
 				table.insert(lines, note_line)
@@ -64,6 +68,7 @@ function M.build(files, current_file_idx)
 					type = "note",
 					filepath = file.path,
 					line = note.line_start,
+					side = side,
 				}
 			end
 		end

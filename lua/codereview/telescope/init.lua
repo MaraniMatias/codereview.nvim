@@ -29,7 +29,8 @@ function M.open_notes_picker()
   local entries = {}
   for _, note in ipairs(all_notes) do
     local short_text = note.text:gsub("\n", " ")
-    local display = note.filepath .. " L" .. note.line_start .. " — " ..
+    local side_label = (note.side or "new") == "old" and " [del]" or ""
+    local display = note.filepath .. " L" .. note.line_start .. side_label .. " — " ..
       short_text:sub(1, 60)
     table.insert(entries, {
       display = display,
@@ -55,7 +56,8 @@ function M.open_notes_picker()
       define_preview = function(self, entry)
         local note = entry.value.note
         local preview_lines = {}
-        table.insert(preview_lines, "# " .. note.filepath .. " — L" .. note.line_start)
+        local del_label = (note.side or "new") == "old" and " [deleted]" or ""
+        table.insert(preview_lines, "# " .. note.filepath .. " — L" .. note.line_start .. del_label)
         table.insert(preview_lines, "")
         if note.code and note.code ~= "" then
           local ext = note.filepath:match("%.([^%.]+)$") or ""
@@ -85,6 +87,7 @@ function M.open_notes_picker()
           type = "note",
           filepath = note.filepath,
           line = note.line_start,
+          side = note.side or "new",
         }, {
           focus_diff = true,
           move_cursor = true,
