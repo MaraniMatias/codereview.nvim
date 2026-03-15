@@ -39,8 +39,7 @@ function M.build(files, current_file_idx)
 	local actions_by_line = {}
 	local truncate_len = config.options.note_truncate_len
 
-	table.insert(lines, " CodeReview  (? help)")
-	table.insert(lines, " ─────────────────────────")
+	table.insert(lines, "CodeReview  (? help)")
 
 	for idx, file in ipairs(files) do
 		local icon = STATUS_ICONS[file.status] or "[?]"

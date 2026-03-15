@@ -43,8 +43,6 @@ function M.generate()
 				table.insert(lines, "")
 			end
 
-			table.insert(lines, "Note:\n")
-
 			for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
 				table.insert(lines, "> " .. text_line)
 			end

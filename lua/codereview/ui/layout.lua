@@ -85,12 +85,24 @@ end
 
 local function configure_panel_window(win)
   set_window_options(win, {
-    number = false,
-    relativenumber = false,
-    signcolumn = "no",
     wrap = false,
     cursorline = true,
   })
+end
+
+local function compute_layout()
+  local cfg = config.options
+  local total_w = vim.o.columns
+  local total_h = vim.o.lines - vim.o.cmdheight - (vim.o.laststatus > 0 and 1 or 0)
+  local exp_w = cfg.explorer_width
+  -- each bordered float uses 1 col on each side; place diff right after explorer's right border
+  local diff_col = exp_w + 2
+  local diff_w = total_w - diff_col - 2
+  local h = total_h - 2  -- top + bottom border
+  return {
+    explorer = { row = 0, col = 0, width = math.max(exp_w, 10), height = math.max(h, 5) },
+    diff = { row = 0, col = diff_col, width = math.max(diff_w, 20), height = math.max(h, 5) },
+  }
 end
 
 local function restore_previous_window(prev_win)
@@ -183,26 +195,25 @@ local function restore_blocked_layout()
 
   local ok = call_in_tab(s.tab, function()
     local current_win = vim.api.nvim_get_current_win()
+    local dims = compute_layout()
 
     if explorer_missing then
-      local diff_win = s.windows.diff
-      if not is_valid_window(diff_win) then
-        error("missing diff window")
-      end
-
-      vim.api.nvim_set_current_win(diff_win)
-      vim.cmd("leftabove vsplit")
-
-      local explorer_win = vim.api.nvim_get_current_win()
       local explorer_buf = create_explorer_buffer()
-
-      vim.api.nvim_win_set_buf(explorer_win, explorer_buf)
-      vim.api.nvim_set_option_value("winfixwidth", true, { win = explorer_win })
-      vim.api.nvim_set_option_value("winfixwidth", false, { win = diff_win })
-      vim.api.nvim_win_set_width(explorer_win, cfg.explorer_width)
+      local explorer_win = vim.api.nvim_open_win(explorer_buf, false, {
+        relative = "editor",
+        row = dims.explorer.row,
+        col = dims.explorer.col,
+        width = dims.explorer.width,
+        height = dims.explorer.height,
+        style = "minimal",
+        border = cfg.border,
+        title = cfg.explorer_title,
+        title_pos = "center",
+        focusable = true,
+        zindex = 10,
+      })
 
       configure_panel_window(explorer_win)
-      configure_panel_window(diff_win)
 
       s.windows.explorer = explorer_win
       s.buffers.explorer = explorer_buf
@@ -212,23 +223,21 @@ local function restore_blocked_layout()
     end
 
     if diff_missing then
-      local explorer_win = s.windows.explorer
-      if not is_valid_window(explorer_win) then
-        error("missing explorer window")
-      end
-
-      vim.api.nvim_set_current_win(explorer_win)
-      vim.cmd("rightbelow vsplit")
-
-      local diff_win = vim.api.nvim_get_current_win()
       local diff_buf = create_diff_buffer()
+      local diff_win = vim.api.nvim_open_win(diff_buf, false, {
+        relative = "editor",
+        row = dims.diff.row,
+        col = dims.diff.col,
+        width = dims.diff.width,
+        height = dims.diff.height,
+        style = "minimal",
+        border = cfg.border,
+        title = cfg.diff_title,
+        title_pos = "center",
+        focusable = true,
+        zindex = 10,
+      })
 
-      vim.api.nvim_win_set_buf(diff_win, diff_buf)
-      vim.api.nvim_set_option_value("winfixwidth", true, { win = explorer_win })
-      vim.api.nvim_set_option_value("winfixwidth", false, { win = diff_win })
-      vim.api.nvim_win_set_width(explorer_win, cfg.explorer_width)
-
-      configure_panel_window(explorer_win)
       configure_panel_window(diff_win)
 
       s.windows.diff = diff_win
@@ -308,7 +317,7 @@ setup_lifecycle_autocmds = function(session_id, explorer_win, diff_win, explorer
         schedule_external_teardown(session_id)
       end,
     })
-end
+  end
 
   for _, buf in ipairs({ explorer_buf, diff_buf }) do
     vim.api.nvim_create_autocmd("BufWipeout", {
@@ -319,9 +328,16 @@ end
       end,
     })
   end
+
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = lifecycle_group,
+    callback = function()
+      M.resize()
+    end,
+  })
 end
 
--- Create the two-panel layout: explorer (left) + diff (right)
+-- Create the two-panel layout: explorer (left) + diff (right) as floating windows
 function M.create()
   local s = state.get()
   local cfg = config.options
@@ -334,27 +350,48 @@ function M.create()
   -- Save current window to restore on close
   s.prev_win = vim.api.nvim_get_current_win()
 
-  -- Create a new tab for the review
+  -- Create a new tab for isolation; the base window gets a blank background buffer
   vim.cmd("tabnew")
   s.tab = vim.api.nvim_get_current_tabpage()
+  local base_win = vim.api.nvim_get_current_win()
+  local bg_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_win_set_buf(base_win, bg_buf)
+  vim.api.nvim_set_option_value("statusline", " ", { win = base_win })
 
-  -- Create explorer buffer (left panel)
+  -- Compute float dimensions
+  local dims = compute_layout()
+
+  -- Create explorer float (left panel)
   local explorer_buf = create_explorer_buffer()
+  local explorer_win = vim.api.nvim_open_win(explorer_buf, false, {
+    relative = "editor",
+    row = dims.explorer.row,
+    col = dims.explorer.col,
+    width = dims.explorer.width,
+    height = dims.explorer.height,
+    style = "minimal",
+    border = cfg.border,
+    title = cfg.explorer_title,
+    title_pos = "center",
+    focusable = true,
+    zindex = 10,
+  })
 
-  -- Set current window to use explorer buffer
-  local explorer_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(explorer_win, explorer_buf)
-
-  -- Create diff window (right panel) via vertical split
-  vim.cmd("rightbelow vsplit")
-  local diff_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_set_option_value("winfixwidth", true, { win = explorer_win })
-  vim.api.nvim_set_option_value("winfixwidth", false, { win = diff_win })
-  vim.api.nvim_win_set_width(explorer_win, cfg.explorer_width)
-
-  -- Create diff buffer
+  -- Create diff float (right panel)
   local diff_buf = create_diff_buffer()
-  vim.api.nvim_win_set_buf(diff_win, diff_buf)
+  local diff_win = vim.api.nvim_open_win(diff_buf, true, {
+    relative = "editor",
+    row = dims.diff.row,
+    col = dims.diff.col,
+    width = dims.diff.width,
+    height = dims.diff.height,
+    style = "minimal",
+    border = cfg.border,
+    title = cfg.diff_title,
+    title_pos = "center",
+    focusable = true,
+    zindex = 10,
+  })
 
   -- Window options
   for _, win in ipairs({ explorer_win, diff_win }) do
@@ -378,6 +415,27 @@ function M.create()
     diff_win = diff_win,
     diff_buf = diff_buf,
   }
+end
+
+-- Recompute and update float sizes (called on VimResized)
+function M.resize()
+  local s = state.get()
+  if not M.is_open() then return end
+  local dims = compute_layout()
+  vim.api.nvim_win_set_config(s.windows.explorer, {
+    relative = "editor",
+    row = dims.explorer.row,
+    col = dims.explorer.col,
+    width = dims.explorer.width,
+    height = dims.explorer.height,
+  })
+  vim.api.nvim_win_set_config(s.windows.diff, {
+    relative = "editor",
+    row = dims.diff.row,
+    col = dims.diff.col,
+    width = dims.diff.width,
+    height = dims.diff.height,
+  })
 end
 
 -- Close the layout and clean up

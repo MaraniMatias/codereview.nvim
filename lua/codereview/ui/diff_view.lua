@@ -7,6 +7,7 @@ local git = require("codereview.git")
 local diff_state = require("codereview.ui.diff_view.state")
 local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
 local diff_request_id = 0
+local _loading_idx = nil   -- tracks which file idx is currently being loaded
 local treesitter_max_lines = 5000
 local _ts_lang_cache = {}   -- buf -> lang string | false
 local _hl_cache = {}        -- buf -> concat key string
@@ -214,6 +215,10 @@ function M.show_file(idx)
   local file = s.files[idx]
   if not file or not buf or not vim.api.nvim_buf_is_valid(buf) then return end
 
+  -- Prevent re-triggering a load that is already in progress for this file
+  if _loading_idx == idx then return end
+
+  _loading_idx = idx
   s.current_file_idx = idx
   diff_request_id = diff_request_id + 1
   local request_id = diff_request_id
@@ -229,6 +234,7 @@ function M.show_file(idx)
     local current_state = state.get()
     local current_file = current_state.files[current_state.current_file_idx]
     if request_id ~= diff_request_id then return end
+    _loading_idx = nil
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
     if not current_file or current_file.path ~= file.path then return end
 
@@ -592,6 +598,7 @@ end
 -- Reset diff display state (call when closing the layout)
 function M.clear()
   diff_request_id = diff_request_id + 1
+  _loading_idx = nil
   reset_display()
   _ts_lang_cache = {}
   _hl_cache = {}
