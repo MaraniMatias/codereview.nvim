@@ -42,33 +42,31 @@ function M.clear_extmarks(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 end
 
--- Render all notes for the current file into the diff buffer
--- buf: diff buffer id, filepath: current file path
--- line_map: table mapping display line index (1-based) -> new_lnum (1-based)
-function M.render_notes(buf, filepath, line_map)
+-- display: diff view state with visible new_to_display mapping
+function M.render_notes(buf, filepath, display)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   M.clear_extmarks(buf)
 
+  display = display or {}
+  local new_to_display = display.new_to_display or {}
   local notes = store.get_for_file(filepath)
   for _, note in ipairs(notes) do
-    for display_lnum, new_lnum in pairs(line_map) do
-      if new_lnum == note.line_start then
-        -- display_lnum is 1-based, extmark needs 0-based
-        M.set_extmark(buf, display_lnum - 1, note)
-        break
-      end
+    local display_lnum = new_to_display[note.line_start]
+    if display_lnum then
+      -- display_lnum is 1-based, extmark needs 0-based
+      M.set_extmark(buf, display_lnum - 1, note)
     end
   end
 end
 
 -- Toggle virtual text visibility
-function M.toggle(buf, filepath, line_map)
+function M.toggle(buf, filepath, display)
   local s = state.get()
   if s.notes_visible then
     M.clear_extmarks(buf)
     s.notes_visible = false
   else
-    M.render_notes(buf, filepath, line_map)
+    M.render_notes(buf, filepath, display)
     s.notes_visible = true
   end
 end

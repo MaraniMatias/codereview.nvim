@@ -5,6 +5,8 @@ M.defaults = {
   explorer_width = 30,
   note_truncate_len = 30,        -- truncation of notes in explorer sub-items
   virtual_text_truncate_len = 60, -- truncation of virtual text
+  max_diff_lines = 1200,          -- initial visible diff lines before truncation
+  diff_page_size = 400,           -- extra diff lines to reveal per load-more action
   keymaps = {
     note = "n",
     toggle_virtual_text = "<leader>uh",
@@ -18,6 +20,7 @@ M.defaults = {
     quit = "q",
     toggle_notes = "za",
     refresh = "R",
+    load_more_diff = "L",
   },
   review = {
     default_filename = "review-%Y-%m-%d.md",
