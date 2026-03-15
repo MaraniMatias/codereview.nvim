@@ -38,6 +38,7 @@ function M.build(files, current_file_idx)
   local lines = {}
   local actions_by_line = {}
   local truncate_len = config.options.note_truncate_len
+  local km = config.options.keymaps
 
   table.insert(lines, " CodeReview")
   table.insert(lines, " ─────────────────────────")
@@ -70,8 +71,18 @@ function M.build(files, current_file_idx)
     end
   end
 
+  local footer_parts = {}
+  table.insert(footer_parts, "[" .. (km.quit or "q") .. "]quit")
+  table.insert(footer_parts, "[" .. (km.refresh or "R") .. "]refresh")
+  table.insert(footer_parts, "[" .. (km.toggle_notes or "za") .. "]notes")
+  table.insert(footer_parts, "[" .. (km.next_file or "]f") .. "/" .. (km.prev_file or "[f") .. "]file")
+  table.insert(footer_parts, "[" .. (km.cycle_focus or "<Tab>") .. "]focus")
+  if km.save then
+    table.insert(footer_parts, "[" .. km.save .. "]save")
+  end
+
   table.insert(lines, "")
-  table.insert(lines, " [q]uit  [R]efresh  <C-s>save")
+  table.insert(lines, " " .. table.concat(footer_parts, "  "))
 
   return {
     lines = lines,

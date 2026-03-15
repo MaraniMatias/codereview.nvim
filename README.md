@@ -9,10 +9,10 @@ The current implementation is centered on a two-panel unified diff workflow. `sp
 ```text
 +---------------------+---------------------------------------+
 |  FILES              |  DIFF (unified)                       |
-|  > [M] src/foo.js   |  @@ -10,4 +10,6 @@                   |
+|  > [M] src/foo.js   |  @@ -10,4 +10,6 @@                    |
 |    > L42: revisit   |   context line                        |
 |  > [A] src/bar.js   |  -old line                            |
-|  > [D] src/baz.js   |  +new line  📝 revisit                |
+|  > [D] src/baz.js   |  +new line  ~ revisit                |
 +---------------------+---------------------------------------+
 ```
 
@@ -135,8 +135,7 @@ git difftool --dir-diff -t codereview main..feature-branch
 
 ## Saving and Closing
 
-- `<C-s>` opens the save prompt and writes the markdown review
-- `:w` inside the CodeReview buffers triggers the same prompt flow
+- `:w` inside the CodeReview buffers opens the save prompt and writes the markdown review
 - `:W` saves directly to the auto-generated filename
 - notes live in memory for the current Neovim session only; exporting saves the Markdown review, not the in-editor note state
 - `:q` warns if you have unsaved notes
@@ -156,9 +155,9 @@ git difftool --dir-diff -t codereview main..feature-branch
 | `R`             | Refresh file list                                         |
 | `<Tab>`         | Focus diff panel                                          |
 | `q`             | Close review                                              |
-| `<C-s>`         | Save review                                               |
 
 You can remap either `cycle_focus` or `toggle_notes` in your config.
+To enable a save shortcut add `keymaps = { save = "<C-s>" }` to your setup.
 
 ### Diff Panel
 
@@ -173,17 +172,16 @@ You can remap either `cycle_focus` or `toggle_notes` in your config.
 | `<leader>uh` | Toggle virtual text notes              |
 | `<Space>n`   | Open Telescope notes picker            |
 | `<Tab>`      | Focus explorer panel                   |
-| `<C-s>`      | Save review                            |
 | `q`          | Close review                           |
 
 ### Note Float
 
-| Key         | Action                                                 |
-| ----------- | ------------------------------------------------------ |
-| Insert mode | Write note text                                        |
-| `<C-s>`     | Confirm and save                                       |
-| `q`         | Cancel in normal mode                                  |
-| `<Esc>`     | Return to normal mode, then cancel with `q` or `<Esc>` |
+| Key         | Action                                              |
+| ----------- | --------------------------------------------------- |
+| Insert mode | Write note text                                     |
+| `w`         | Save note (normal mode)                             |
+| `<Esc>`     | Ask to save or discard (from insert or normal mode) |
+| `q`         | Discard note without asking (normal mode)           |
 
 ## `review-YYYY-MM-DD.md` Format
 

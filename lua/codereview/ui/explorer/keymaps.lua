@@ -10,6 +10,7 @@ function M.setup(buf)
 
   vim.keymap.set("n", "<CR>", actions.open_current, opts)
   vim.keymap.set("n", "l", actions.open_current, opts)
+  vim.keymap.set("n", "h", actions.toggle_notes, opts)
   vim.keymap.set("n", km.toggle_notes, actions.toggle_notes, opts)
   vim.keymap.set("n", km.next_file, actions.next_file, opts)
   vim.keymap.set("n", km.prev_file, actions.prev_file, opts)

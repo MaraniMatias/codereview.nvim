@@ -139,12 +139,23 @@ end
 
 function M.toggle_notes()
   local action = view.get_current_action()
-  if not action or action.type ~= "file" then
+  if not action then
     return
   end
 
   local s = state.get()
-  local file = s.files[action.idx]
+  local file_idx
+  if action.type == "file" then
+    file_idx = action.idx
+  elseif action.type == "note" then
+    file_idx = find_file_idx(action.filepath)
+  end
+
+  if not file_idx then
+    return
+  end
+
+  local file = s.files[file_idx]
   if not file then
     return
   end
@@ -155,17 +166,35 @@ function M.toggle_notes()
   M.preview_current({ preserve_cursor = true })
 end
 
+local function get_cursor_file_idx()
+  local action = view.get_current_action()
+  if not action then
+    return state.get().current_file_idx
+  end
+  if action.type == "file" then
+    return action.idx
+  elseif action.type == "note" then
+    return find_file_idx(action.filepath) or state.get().current_file_idx
+  end
+  return state.get().current_file_idx
+end
+
 function M.next_file()
   local s = state.get()
-  if s.current_file_idx < #s.files then
-    M.preview_action({ type = "file", idx = s.current_file_idx + 1 }, { move_cursor = true })
+  local from = get_cursor_file_idx()
+  if from < #s.files then
+    M.preview_action({ type = "file", idx = from + 1 }, { move_cursor = true })
+  else
+    vim.notify("No more files", vim.log.levels.INFO, { title = "CodeReview" })
   end
 end
 
 function M.prev_file()
-  local s = state.get()
-  if s.current_file_idx > 1 then
-    M.preview_action({ type = "file", idx = s.current_file_idx - 1 }, { move_cursor = true })
+  local from = get_cursor_file_idx()
+  if from > 1 then
+    M.preview_action({ type = "file", idx = from - 1 }, { move_cursor = true })
+  else
+    vim.notify("Already at first file", vim.log.levels.INFO, { title = "CodeReview" })
   end
 end
 
