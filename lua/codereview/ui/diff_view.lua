@@ -35,10 +35,12 @@ function M.show_file(idx)
   local lines, line_types = diff_parser.get_display_lines(parsed)
 
   -- Build line_map: display line -> new_lnum
+  -- Account for file header lines prepended by get_display_lines
+  local header_offset = (parsed.old_file and parsed.new_file) and 2 or 0
   local line_map = {}
-  local display_lnum = 1
+  local display_lnum = 1 + header_offset
   for _, hunk in ipairs(parsed.hunks) do
-    display_lnum = display_lnum + 1  -- header line
+    display_lnum = display_lnum + 1  -- hunk header line
     for _, l in ipairs(hunk.lines) do
       if l.new_lnum then
         line_map[display_lnum] = l.new_lnum
@@ -85,13 +87,16 @@ function M._get_diff_for_file(file)
   if s.mode == "difftool" then
     return git.get_difftool_diff(file)
   else
-    return git.get_file_diff(s.root, file.path, s.diff_ref)
+    return git.get_file_diff(s.root, file.path, s.diff_args)
   end
 end
 
 function M._apply_diff_highlights(buf, line_types)
   local ns = vim.api.nvim_create_namespace("codereview_diff")
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+
+  -- Ensure CodeReviewFileHdr highlight group exists (linked to Label as fallback)
+  vim.api.nvim_set_hl(0, "CodeReviewFileHdr", { link = "Label", default = true })
 
   for lnum, ltype in ipairs(line_types) do
     local hl
@@ -101,6 +106,8 @@ function M._apply_diff_highlights(buf, line_types)
       hl = "DiffDelete"
     elseif ltype == "hdr" then
       hl = "DiffChange"
+    elseif ltype == "file_hdr" then
+      hl = "CodeReviewFileHdr"
     end
     if hl then
       vim.api.nvim_buf_add_highlight(buf, ns, hl, lnum - 1, 0, -1)

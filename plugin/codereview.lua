@@ -5,10 +5,9 @@ end
 vim.g.loaded_codereview = true
 
 vim.api.nvim_create_user_command("CodeReview", function(opts)
-  local args = opts.args
-  require("codereview").open(args ~= "" and args or nil)
+  require("codereview").open(opts.fargs)
 end, {
-  nargs = "?",
+  nargs = "*",
   desc = "Open codereview code review for current repository",
 })
 

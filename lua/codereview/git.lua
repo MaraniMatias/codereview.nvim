@@ -1,5 +1,13 @@
 local M = {}
 
+-- Convert a list of diff args to a safe shell string
+-- Returns empty string if args_list is nil or empty
+function M._args_str(args_list)
+  if not args_list or #args_list == 0 then return "" end
+  local escaped = vim.tbl_map(vim.fn.shellescape, args_list)
+  return table.concat(escaped, " ")
+end
+
 -- Get the git repository root from a given path
 -- Returns root path string or nil
 function M.get_repo_root(path)
@@ -14,14 +22,15 @@ function M.get_repo_root(path)
 end
 
 -- Get list of changed files with their status
--- ref: git diff ref (e.g. "HEAD", "main..feature", "--staged", "HEAD~3")
+-- diff_args: list of git diff arguments (e.g. {"HEAD"}, {"--staged"}, {"main..feature"})
 -- Returns: list of { path, status } where status is "M", "A", "D", "R", "C", "U"
-function M.get_changed_files(root, ref)
-  ref = ref or "HEAD"
+function M.get_changed_files(root, diff_args)
+  local args_str = M._args_str(diff_args)
   local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff --name-status " .. ref .. " 2>/dev/null"
+    " diff --name-status " .. args_str .. " 2>/dev/null"
   local lines = vim.fn.systemlist(cmd)
   if vim.v.shell_error ~= 0 then
+    vim.notify("codereview: git diff failed (invalid ref or not a repository)", vim.log.levels.WARN)
     return {}
   end
 
@@ -42,11 +51,35 @@ function M.get_changed_files(root, ref)
 end
 
 -- Get the old content of a file (before changes)
+-- diff_args: list of git diff arguments used for this review session
 -- Returns: string content or nil
-function M.get_file_old(root, path, ref)
-  ref = ref or "HEAD"
-  local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " show " .. ref .. ":" .. vim.fn.shellescape(path) .. " 2>/dev/null"
+function M.get_file_old(root, path, diff_args)
+  local is_staged = false
+  for _, arg in ipairs(diff_args or {}) do
+    if arg == "--staged" or arg == "--cached" then
+      is_staged = true
+      break
+    end
+  end
+
+  local cmd
+  if is_staged then
+    -- Read from the index (staged version of old file)
+    cmd = "git -C " .. vim.fn.shellescape(root) ..
+      " show :" .. vim.fn.shellescape(path) .. " 2>/dev/null"
+  else
+    -- Find first non-flag arg as ref; default to HEAD
+    local ref = "HEAD"
+    for _, arg in ipairs(diff_args or {}) do
+      if not arg:match("^%-") then
+        ref = arg
+        break
+      end
+    end
+    cmd = "git -C " .. vim.fn.shellescape(root) ..
+      " show " .. ref .. ":" .. vim.fn.shellescape(path) .. " 2>/dev/null"
+  end
+
   local content = vim.fn.system(cmd)
   if vim.v.shell_error ~= 0 then
     return nil
@@ -55,11 +88,18 @@ function M.get_file_old(root, path, ref)
 end
 
 -- Get unified diff for a single file
+-- diff_args: list of git diff arguments; any existing "-- path" tokens are stripped
 -- Returns: diff string
-function M.get_file_diff(root, path, ref)
-  ref = ref or "HEAD"
+function M.get_file_diff(root, path, diff_args)
+  -- Strip any "-- <path>" suffix from diff_args (we append our own)
+  local clean_args = {}
+  for _, arg in ipairs(diff_args or {}) do
+    if arg == "--" then break end
+    table.insert(clean_args, arg)
+  end
+  local args_str = M._args_str(clean_args)
   local cmd = "git -C " .. vim.fn.shellescape(root) ..
-    " diff " .. ref .. " -- " .. vim.fn.shellescape(path) .. " 2>/dev/null"
+    " diff " .. args_str .. " -- " .. vim.fn.shellescape(path) .. " 2>/dev/null"
   local result = vim.fn.system(cmd)
   if vim.v.shell_error ~= 0 and result == "" then
     return nil
@@ -90,7 +130,9 @@ function M.diff_files(local_file, remote_file)
 end
 
 -- Scan two directories (local/remote) for difftool --dir-diff mode
--- Returns: list of { path, status, local_file, remote_file }
+-- Returns: list of { path, status, local_file, remote_file }, sorted by path
+-- Note: rename detection is not possible in --dir-diff mode without git metadata;
+-- only A/D/M statuses are reported. Identical files are excluded.
 function M.scan_dir_diff(local_dir, remote_dir)
   local files = {}
   local seen = {}
@@ -105,6 +147,13 @@ function M.scan_dir_diff(local_dir, remote_dir)
       local local_file = local_dir .. "/" .. rel
       local status
       if vim.fn.filereadable(local_file) == 1 then
+        -- Check if files are identical; skip if so
+        vim.fn.system("diff -q " .. vim.fn.shellescape(local_file) ..
+          " " .. vim.fn.shellescape(fpath) .. " 2>/dev/null")
+        if vim.v.shell_error == 0 then
+          seen[rel] = true
+          goto continue
+        end
         status = "M"
       else
         status = "A"
@@ -116,6 +165,7 @@ function M.scan_dir_diff(local_dir, remote_dir)
         remote_file = fpath,
       })
       seen[rel] = true
+      ::continue::
     end
   end
 
@@ -134,6 +184,9 @@ function M.scan_dir_diff(local_dir, remote_dir)
       })
     end
   end
+
+  -- Sort results alphabetically by path
+  table.sort(files, function(a, b) return a.path < b.path end)
 
   return files
 end

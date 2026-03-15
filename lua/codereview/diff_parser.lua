@@ -1,7 +1,8 @@
 local M = {}
 
 -- Parse a unified diff string into structured hunks
--- Returns: { hunks = { { header, lines = { {type, content, old_lnum, new_lnum} } } } }
+-- Returns: { old_file, new_file, hunks = { { header, lines = { {type, content, old_lnum, new_lnum} } } } }
+-- old_file and new_file are captured from "--- " / "+++ " lines before the first hunk
 function M.parse(diff_text)
   local result = { hunks = {} }
   local current_hunk = nil
@@ -21,6 +22,16 @@ function M.parse(diff_text)
       table.insert(result.hunks, current_hunk)
       old_lnum = tonumber(old_start)
       new_lnum = tonumber(new_start)
+    elseif not current_hunk then
+      -- Capture file header lines before the first hunk
+      local old_file = line:match("^%-%-%- (.+)$")
+      if old_file then
+        result.old_file = old_file
+      end
+      local new_file = line:match("^%+%+%+ (.+)$")
+      if new_file then
+        result.new_file = new_file
+      end
     elseif current_hunk then
       if line:sub(1, 1) == "+" then
         table.insert(current_hunk.lines, {
@@ -55,10 +66,19 @@ function M.parse(diff_text)
 end
 
 -- Get the content lines for display (with leading +/-/ )
+-- Prepends "--- <old_file>" / "+++ <new_file>" lines with type "file_hdr" if present.
+-- file_hdr lines are NOT included in line_map (no line number association).
 -- Returns lines table and line-to-type mapping for highlights
 function M.get_display_lines(parsed)
   local lines = {}
-  local line_types = {}  -- "add", "del", "ctx", "hdr"
+  local line_types = {}  -- "add", "del", "ctx", "hdr", "file_hdr"
+
+  if parsed.old_file and parsed.new_file then
+    table.insert(lines, "--- " .. parsed.old_file)
+    table.insert(line_types, "file_hdr")
+    table.insert(lines, "+++ " .. parsed.new_file)
+    table.insert(line_types, "file_hdr")
+  end
 
   for _, hunk in ipairs(parsed.hunks) do
     table.insert(lines, hunk.header)

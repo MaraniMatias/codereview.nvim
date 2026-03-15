@@ -10,8 +10,8 @@ function M.setup(opts)
 end
 
 --- Open code review from within Neovim
---- ref: optional git diff ref (e.g. "HEAD", "main..feature", "--staged", "HEAD~3")
-function M.open(ref)
+--- args: optional list of git diff arguments (e.g. {"HEAD"}, {"main..feature"}, {"--staged"}, {"HEAD~3"})
+function M.open(args)
   local layout = require("codereview.ui.layout")
   if layout.is_open() then
     vim.notify("codereview is already open", vim.log.levels.WARN)
@@ -34,11 +34,12 @@ function M.open(ref)
 
   s.mode = "review"
   s.root = root
-  s.diff_ref = ref or "HEAD"
+  s.diff_args = args or {}
 
-  local files = git.get_changed_files(root, s.diff_ref)
+  local args_display = #s.diff_args > 0 and table.concat(s.diff_args, " ") or "(working tree)"
+  local files = git.get_changed_files(root, s.diff_args)
   if #files == 0 then
-    vim.notify("No changed files found (git diff " .. s.diff_ref .. ")", vim.log.levels.INFO)
+    vim.notify("No changed files found (git diff " .. args_display .. ")", vim.log.levels.INFO)
     return
   end
 
@@ -63,7 +64,7 @@ function M.open(ref)
   layout.focus_explorer()
 
   vim.notify(
-    "codereview: " .. #files .. " changed file(s) | " .. s.diff_ref,
+    "codereview: " .. #files .. " changed file(s) | " .. args_display,
     vim.log.levels.INFO
   )
 end
@@ -141,7 +142,7 @@ function M.refresh()
   if not s.mode then return end
 
   if s.mode == "review" then
-    local files = git.get_changed_files(s.root, s.diff_ref)
+    local files = git.get_changed_files(s.root, s.diff_args)
     for _, f in ipairs(files) do
       f.expanded = false
       for _, existing in ipairs(s.files) do
