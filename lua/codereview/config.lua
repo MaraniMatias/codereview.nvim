@@ -1,5 +1,7 @@
 local M = {}
 
+M.VERSION = "0.1.0"
+
 M.defaults = {
   diff_view = "unified",     -- "unified" | "split"
   explorer_width = 30,

@@ -1,20 +1,24 @@
 local M = {}
 
-function M.open_notes_picker()
-  local ok, _ = pcall(require, "telescope")
-  if not ok then
-    vim.notify("Telescope is not installed", vim.log.levels.WARN)
-    return
+local telescope_ok = pcall(require, "telescope")
+
+if not telescope_ok then
+  function M.open_notes_picker()
+    vim.notify("CodeReview: telescope.nvim is required for the notes picker", vim.log.levels.WARN)
   end
+  return M
+end
 
-  local pickers = require("telescope.pickers")
-  local finders = require("telescope.finders")
-  local conf = require("telescope.config").values
-  local actions = require("telescope.actions")
-  local action_state = require("telescope.actions.state")
-  local previewers = require("telescope.previewers")
+-- All telescope requires run once at module-load time (after the guard)
+local pickers      = require("telescope.pickers")
+local finders      = require("telescope.finders")
+local conf         = require("telescope.config").values
+local actions      = require("telescope.actions")
+local action_state = require("telescope.actions.state")
+local previewers   = require("telescope.previewers")
+local store        = require("codereview.notes.store")
 
-  local store = require("codereview.notes.store")
+function M.open_notes_picker()
   local all_notes = store.get_all()
 
   if #all_notes == 0 then

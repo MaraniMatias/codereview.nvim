@@ -121,13 +121,14 @@ local function restore_current_file(previous_file)
   s.current_file_idx = math.min(math.max(s.current_file_idx, 1), #s.files)
 end
 
---- Setup the plugin with user configuration
+--- Setup the plugin with user configuration.
+---@param opts table|nil
 function M.setup(opts)
   config.setup(opts)
 end
 
---- Open code review from within Neovim
---- args: optional list of git diff arguments (e.g. {"HEAD"}, {"main..feature"}, {"--staged"}, {"HEAD~3"})
+--- Open code review from within Neovim.
+---@param args string[]|nil Optional git diff arguments, e.g. {"HEAD"}, {"--staged"}
 function M.open(args)
   local layout = require("codereview.ui.layout")
   if layout.is_open() or opening then
@@ -174,9 +175,10 @@ function M.open(args)
   end)
 end
 
---- Open as git difftool
---- Called from git difftool with LOCAL and REMOTE paths
---- merged_path (optional): $MERGED from git env; used to derive a stable repo-relative identity
+--- Open as git difftool ($LOCAL / $REMOTE paths).
+---@param local_path string Absolute path to old file ($LOCAL)
+---@param remote_path string Absolute path to new file ($REMOTE)
+---@param merged_path string|nil Optional $MERGED path for stable identity
 function M.difftool(local_path, remote_path, merged_path)
   local layout = require("codereview.ui.layout")
   if layout.is_open() or opening then
@@ -248,7 +250,8 @@ function M.difftool(local_path, remote_path, merged_path)
   end
 end
 
---- Refresh the current review (re-scan changes)
+--- Refresh the current review (re-scan changed files). No-op if nothing is open.
+---@return nil
 function M.refresh()
   local s = state.get()
   if not s.mode or refreshing then return end
