@@ -116,11 +116,11 @@ local function _normalize_diff_output(stdout, old_label, new_label)
   return table.concat(normalized, "\n")
 end
 
-local function is_binary_diff_output(stdout, stderr)
-  local function has_binary_marker(text)
-    return text and text:find("Binary files ", 1, true) ~= nil and text:find(" differ", 1, true) ~= nil
-  end
+local function has_binary_marker(text)
+  return text and text:find("Binary files ", 1, true) ~= nil and text:find(" differ", 1, true) ~= nil
+end
 
+local function is_binary_diff_output(stdout, stderr)
   return has_binary_marker(stdout) or has_binary_marker(stderr)
 end
 

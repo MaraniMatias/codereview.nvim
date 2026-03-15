@@ -11,6 +11,10 @@ local treesitter_max_lines = 5000
 local _ts_lang_cache = {}   -- buf -> lang string | false
 local _hl_cache = {}        -- buf -> concat key string
 
+local function get_line_type(l)
+  return l:sub(1, 1)
+end
+
 local function reset_display()
   diff_state.reset()
 end
@@ -408,7 +412,8 @@ function M.get_code_context(line_start, line_end)
   local code_lines = {}
   for _, k in ipairs(keys) do
     local line = result[k]
-    if line:sub(1, 1) == "+" or line:sub(1, 1) == "-" or line:sub(1, 1) == " " then
+    local ltype = get_line_type(line)
+    if ltype == "+" or ltype == "-" or ltype == " " then
       line = line:sub(2)
     end
     table.insert(code_lines, line)

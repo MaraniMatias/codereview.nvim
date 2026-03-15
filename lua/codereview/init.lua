@@ -52,24 +52,19 @@ local function set_diff_message(message)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 end
 
-local function _file_identity_candidates(file)
-  if not file then
-    return {}
+local function _add_candidate(candidates, seen, path)
+  if path and path ~= "" and not seen[path] then
+    seen[path] = true
+    table.insert(candidates, path)
   end
+end
 
+local function _file_identity_candidates(file)
+  if not file then return {} end
   local candidates = {}
   local seen = {}
-
-  local function add(path)
-    if path and path ~= "" and not seen[path] then
-      seen[path] = true
-      table.insert(candidates, path)
-    end
-  end
-
-  add(file.path)
-  add(file.old_path)
-
+  _add_candidate(candidates, seen, file.path)
+  _add_candidate(candidates, seen, file.old_path)
   return candidates
 end
 

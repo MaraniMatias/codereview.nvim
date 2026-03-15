@@ -70,8 +70,15 @@ function M.save(filepath)
     vim.notify("Error: could not write to " .. filepath, vim.log.levels.ERROR)
     return false
   end
-  f:write(content)
-  f:close()
+  local ok, err = pcall(function()
+    f:write(content)
+    f:close()
+  end)
+  if not ok then
+    pcall(function() f:close() end)
+    vim.notify("Error: could not write to " .. filepath .. ": " .. tostring(err), vim.log.levels.ERROR)
+    return false
+  end
   state.get().notes_dirty = false
   return true
 end
