@@ -794,18 +794,36 @@ function M.focus_explorer()
   end
 end
 
--- Focus the diff window (in split mode, focus the new/right panel)
+-- Focus the diff window (in split mode, focus the old/left panel first)
 function M.focus_diff()
   local s = state.get()
   if is_split_mode() then
-    if s.windows.diff_new and vim.api.nvim_win_is_valid(s.windows.diff_new) then
-      vim.api.nvim_set_current_win(s.windows.diff_new)
+    if s.windows.diff_old and vim.api.nvim_win_is_valid(s.windows.diff_old) then
+      vim.api.nvim_set_current_win(s.windows.diff_old)
     end
   else
     if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
       vim.api.nvim_set_current_win(s.windows.diff)
     end
   end
+end
+
+-- Focus the new/right diff panel (split mode only)
+function M.focus_diff_new()
+  local s = state.get()
+  if s.windows.diff_new and vim.api.nvim_win_is_valid(s.windows.diff_new) then
+    vim.api.nvim_set_current_win(s.windows.diff_new)
+  end
+end
+
+function M.is_split_mode()
+  return is_split_mode()
+end
+
+-- Check if the current window is the old/left diff panel
+function M.is_diff_old_focused()
+  local s = state.get()
+  return s.windows.diff_old and vim.api.nvim_get_current_win() == s.windows.diff_old
 end
 
 return M

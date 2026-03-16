@@ -914,7 +914,11 @@ function M.setup_keymaps(buf)
   end, opts)
 
   vim.keymap.set("n", km.cycle_focus, function()
-    layout.focus_explorer()
+    if layout.is_split_mode() and layout.is_diff_old_focused() then
+      layout.focus_diff_new()
+    else
+      layout.focus_explorer()
+    end
   end, opts)
 
   vim.keymap.set("n", km.quit, function()
