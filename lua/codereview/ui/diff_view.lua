@@ -804,6 +804,104 @@ function M.jump_to_line_sided(lnum, side)
   end
 end
 
+-- Open the current file in a new tab, optionally jumping to the cursor line
+function M._open_file_in_tab(jump_to_line)
+  local s = state.get()
+  local file = s.files[s.current_file_idx]
+  if not file then return end
+
+  local full_path = s.root .. "/" .. file.path
+  if vim.fn.filereadable(full_path) ~= 1 then
+    vim.notify("codereview: file not found: " .. file.path, vim.log.levels.WARN)
+    return
+  end
+
+  local target_lnum = 1
+  if jump_to_line then
+    local info = M.get_current_line_info()
+    if info and info.lnum then
+      target_lnum = info.lnum
+    end
+  end
+
+  -- Open in a new tab (goes to the tab before the review tab)
+  vim.cmd("tabnew " .. vim.fn.fnameescape(full_path))
+  pcall(vim.api.nvim_win_set_cursor, 0, { target_lnum, 0 })
+  pcall(vim.cmd, "normal! zz")
+end
+
+-- Toggle fold for the hunk under the cursor
+function M._toggle_hunk_fold()
+  local s = state.get()
+  local file = s.files[s.current_file_idx]
+  if not file then return end
+
+  -- Get cursor position in the visible buffer and map back to all_lines index
+  local current_win = vim.api.nvim_get_current_win()
+  local cursor = vim.api.nvim_win_get_cursor(current_win)
+  local cursor_line = cursor[1]
+
+  -- We need to find which all_lines hdr index corresponds to the cursor position.
+  -- Walk through all_lines the same way rebuild_visible_slice does, tracking the
+  -- output line index, to find the all_lines hdr_idx for the cursor's visible line.
+  local display = diff_state.get()
+  local folded = display.folded_hunks or {}
+  local visible_until = display.visible_until
+  local total_lines = #display.all_lines
+
+  local out_idx = 0
+  local src_idx = 1
+  local current_hdr = nil -- the hdr all_lines index the cursor is inside
+
+  while src_idx <= visible_until do
+    local ltype = display.all_line_types[src_idx]
+
+    if next(folded) and ltype == "hdr" and folded[src_idx] then
+      -- Folded hunk: one output line
+      local hunk_end_total = total_lines
+      for i = src_idx + 1, total_lines do
+        if display.all_line_types[i] == "hdr" then
+          hunk_end_total = i - 1
+          break
+        end
+      end
+      local visible_hunk_end = math.min(hunk_end_total, visible_until)
+      out_idx = out_idx + 1
+      if out_idx == cursor_line then
+        current_hdr = src_idx
+        break
+      end
+      src_idx = visible_hunk_end + 1
+    else
+      out_idx = out_idx + 1
+      if out_idx == cursor_line then
+        -- Find the hdr for this line by walking backwards in all_line_types
+        for i = src_idx, 1, -1 do
+          if display.all_line_types[i] == "hdr" then
+            current_hdr = i
+            break
+          end
+        end
+        break
+      end
+      src_idx = src_idx + 1
+    end
+  end
+
+  if not current_hdr then return end
+
+  if is_split_mode() then
+    diff_state.toggle_hunk_fold_both(current_hdr)
+    render_split_display(file, { preserve_cursor = true })
+  else
+    diff_state.toggle_hunk_fold(current_hdr)
+    local buf = s.buffers.diff
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      render_current_display(buf, file, { preserve_cursor = true })
+    end
+  end
+end
+
 -- Setup keymaps for the diff buffer
 function M.setup_keymaps(buf)
   local cfg = config.options
@@ -911,6 +1009,18 @@ function M.setup_keymaps(buf)
 
   vim.keymap.set("n", km.load_more_diff, function()
     M.load_more()
+  end, opts)
+
+  vim.keymap.set("n", km.go_to_file, function()
+    M._open_file_in_tab(true)
+  end, opts)
+
+  vim.keymap.set("n", km.view_file, function()
+    M._open_file_in_tab(false)
+  end, opts)
+
+  vim.keymap.set("n", km.toggle_hunk_fold, function()
+    M._toggle_hunk_fold()
   end, opts)
 
   vim.keymap.set("n", km.cycle_focus, function()

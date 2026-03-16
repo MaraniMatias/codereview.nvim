@@ -26,6 +26,9 @@ M.defaults = {
 		toggle_notes = "za",
 		refresh = "R",
 		load_more_diff = "L",
+		go_to_file = "gf",
+		view_file = "gF",
+		toggle_hunk_fold = "za",
 	},
 	review = {
 		default_filename = "review-%Y-%m-%d.md",

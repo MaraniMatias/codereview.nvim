@@ -157,6 +157,9 @@ All keybindings are remappable via `keymaps` in your setup config.
 | `]n` / `[n`  | Next or previous note in current file  |
 | `]f` / `[f`  | Next or previous file                  |
 | `L`          | Load more lines for a truncated diff   |
+| `za`         | Toggle fold for the current hunk       |
+| `gf`         | Open file in a new tab at cursor line  |
+| `gF`         | Open full file in a new tab            |
 | `<leader>uh` | Toggle virtual text notes              |
 | `<Space>n`   | Open Telescope notes picker            |
 | `<Tab>`      | Focus explorer panel                   |
@@ -211,6 +214,9 @@ require("codereview").setup({
     toggle_notes = "za",
     refresh = "R",
     load_more_diff = "L",
+    go_to_file = "gf",              -- open file in new tab at cursor line
+    view_file = "gF",               -- open full file in new tab
+    toggle_hunk_fold = "za",        -- fold/unfold the current hunk
   },
 
   review = {
