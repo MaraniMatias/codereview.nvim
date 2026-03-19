@@ -35,18 +35,23 @@ end
 function M.set_extmark(buf, lnum, note, extmark_id)
   if not vim.api.nvim_buf_is_valid(buf) then return nil end
 
-  local text = note.text or ""
-  local tlen = config.options.virtual_text_truncate_len
-  if #text > tlen then
-    text = text:sub(1, tlen - 3) .. "..."
-  end
-  -- Remove newlines from virtual text display
-  text = text:gsub("\n", " ")
-
+  local full_text = note.text or ""
   local is_old = (note.side or "new") == "old"
   local prefix = is_old and "  ~ [deleted] " or "  ~ "
   local hl = is_old and "DiagnosticInfo" or "Comment"
-  local virt_text = { { prefix .. text, hl } }
+
+  local text_lines = vim.split(full_text, "\n", { plain = true })
+  local max_extra = config.options.virtual_text_max_lines or 0
+
+  -- First line: always shown as eol virtual text (truncated)
+  local first_line = text_lines[1] or ""
+  local tlen = config.options.virtual_text_truncate_len
+  local has_more = #text_lines > 1 or #first_line > tlen
+  if #first_line > tlen then
+    first_line = first_line:sub(1, tlen - 3) .. "..."
+  end
+  local eol_suffix = (has_more and max_extra == 0) and " [...]" or ""
+  local virt_text = { { prefix .. first_line .. eol_suffix, hl } }
 
   local opts = {
     virt_text = virt_text,
@@ -54,6 +59,26 @@ function M.set_extmark(buf, lnum, note, extmark_id)
     hl_mode = "combine",
     id = extmark_id,
   }
+
+  -- Extra lines: shown below the code line using virt_lines
+  if max_extra > 0 and #text_lines > 1 then
+    local virt_lines = {}
+    local line_prefix = "  ~ "
+    local remaining = math.min(#text_lines - 1, max_extra)
+    for i = 2, 1 + remaining do
+      local line = text_lines[i] or ""
+      if #line > tlen then
+        line = line:sub(1, tlen - 3) .. "..."
+      end
+      table.insert(virt_lines, { { line_prefix .. line, hl } })
+    end
+    -- Indicate there are more lines beyond the limit
+    if #text_lines - 1 > max_extra then
+      local omitted = #text_lines - 1 - max_extra
+      table.insert(virt_lines, { { line_prefix .. "(+" .. omitted .. " more)", hl } })
+    end
+    opts.virt_lines = virt_lines
+  end
 
   return set_buf_extmark(buf, lnum, opts)
 end

@@ -9,7 +9,8 @@ M.defaults = {
 	explorer_title = " Files ",
 	diff_title = " Diff ",
 	note_truncate_len = 30, -- truncation of notes in explorer sub-items
-	virtual_text_truncate_len = 60, -- truncation of virtual text
+	virtual_text_truncate_len = 60, -- truncation of virtual text (eol preview)
+	virtual_text_max_lines = 3, -- extra lines shown below the code line (0 = eol only)
 	max_diff_lines = 1200, -- initial visible diff lines before truncation
 	diff_page_size = 400, -- extra diff lines to reveal per load-more action
 	keymaps = {
@@ -89,6 +90,11 @@ local function validate(opts)
 			opts.virtual_text_truncate_len,
 			function(v) return v == nil or (type(v) == "number" and v > 0) end,
 			"expected a positive number",
+		},
+		virtual_text_max_lines = {
+			opts.virtual_text_max_lines,
+			function(v) return v == nil or (type(v) == "number" and v >= 0) end,
+			"expected a non-negative number",
 		},
 		max_diff_lines = {
 			opts.max_diff_lines,
