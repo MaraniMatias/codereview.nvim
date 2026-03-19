@@ -34,7 +34,10 @@ function M.build_split_display(parsed)
     push(info_line, "info", info_line, "info")
   end
 
-  for _, hunk in ipairs(parsed.hunks) do
+  for hunk_idx, hunk in ipairs(parsed.hunks) do
+    if hunk_idx > 1 then
+      push("", "sep", "", "sep")
+    end
     -- Hunk header on both sides
     push(hunk.header, "hdr", hunk.header, "hdr")
 

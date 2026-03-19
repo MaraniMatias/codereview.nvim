@@ -77,7 +77,7 @@ end
 -- Find the end of a hunk: the line before the next "hdr" or end of data
 local function find_hunk_end(all_line_types, hdr_idx, total)
   for i = hdr_idx + 1, total do
-    if all_line_types[i] == "hdr" then
+    if all_line_types[i] == "hdr" or all_line_types[i] == "sep" then
       return i - 1
     end
   end

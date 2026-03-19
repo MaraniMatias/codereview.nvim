@@ -24,15 +24,8 @@ function M.ask_save_or_discard()
     M.close()
     return
   end
-  vim.ui.select({ "Save", "Discard", "Cancel" }, { prompt = "Save note?" }, function(choice)
-    asking = false
-    if choice == "Save" then
-      M.confirm()
-    elseif choice == "Discard" then
-      M.close()
-    end
-    -- nil or "Cancel": stay in float
-  end)
+  asking = false
+  M.confirm()
 end
 
 -- Open the note floating window
@@ -145,7 +138,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     border = border,
     title = note_title,
     title_pos = "center",
-    footer = " <C-s>/:w save  ·  <Esc> save?  ·  <C-d> delete  ·  q discard ",
+    footer = " <C-s>/:w save  ·  <Esc> save  ·  <C-d> delete  ·  q discard ",
     footer_pos = "center",
     zindex = 50,
   })

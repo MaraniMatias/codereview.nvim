@@ -46,6 +46,8 @@ function M.setup(buf)
   if km.save then
     vim.keymap.set("n", km.save, actions.save, opts)
   end
+  vim.keymap.set("n", "d", function() actions.delete_note(false) end, opts)
+  vim.keymap.set("n", "D", function() actions.delete_note(true) end, opts)
   vim.keymap.set("n", "?", actions.show_help, opts)
 
   layout.setup_quit_handlers(buf)

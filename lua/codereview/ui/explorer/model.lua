@@ -43,16 +43,6 @@ local function get_status_icons()
 	return DEFAULT_STATUS_ICONS
 end
 
--- Configurable note glyph — E15: ⊳ may not render in all terminal fonts.
--- Fallback to ASCII ">" when config says so.
-local function note_glyph()
-	local g = config.options.note_glyph
-	if g and g ~= "" then
-		return g
-	end
-	return ""
-end
-
 -- Split "dir/sub/file.lua" → dir="dir/sub/", name="file.lua".
 -- Paths with no slash return dir="", name=path.
 local function split_path(path)
@@ -81,15 +71,13 @@ local function note_rows(filepath, truncate_len)
 	local rows = {}
 	local multiline = config.options.note_multiline
 
-	local glyph = note_glyph()
 	for _, note in ipairs(store.get_for_file(filepath)) do
 		local side = note.side or "new"
 		local side_label = side == "old" and " (del)" or ""
 		local action = { type = "note", filepath = filepath, line = note.line_start, side = side }
-		local prefix = "    " .. glyph .. " L" .. note.line_start .. side_label .. ": "
+		local prefix = "   L" .. note.line_start .. side_label .. ": "
 		-- Indent for continuation lines: aligns under the text, not the glyph.
-		-- Fixed at 6 spaces ("    X ") so it doesn't shift with line-number width.
-		local cont_indent = "      "
+		local cont_indent = "     "
 
 		if multiline then
 			-- Split on real newlines and emit one row per line.
@@ -107,9 +95,10 @@ local function note_rows(filepath, truncate_len)
 				end
 			end
 		else
-			-- Single-line mode: collapse newlines to spaces (original behaviour).
-			local short = note.text:gsub("\n", " ")
-			local text = short:sub(1, truncate_len) .. (#short > truncate_len and "…" or "")
+			-- Single-line mode: show only the first line of the note.
+			local first_line = note.text:match("^([^\n]*)") or ""
+			local has_more = note.text:find("\n") ~= nil
+			local text = first_line:sub(1, truncate_len) .. (#first_line > truncate_len and "…" or (has_more and " …" or ""))
 			table.insert(rows, { line = prefix .. text, action = action })
 		end
 	end
@@ -156,8 +145,8 @@ local function build_flat(files, current_file_idx)
 		-- but we pad with strdisplaywidth to be safe.
 		local marker = " "
 		local note_count = store.count_for_file(file.path)
-		local note_marker = note_count > 0 and ("  (" .. note_count .. ")") or ""
-		local binary_tag = file.is_binary and "  [binary]" or ""
+		local note_marker = note_count > 0 and (" (" .. note_count .. ")") or ""
+		local binary_tag = file.is_binary and " [binary]" or ""
 		local file_icon = get_file_icon(file.path)
 
 		local name, dir
@@ -171,8 +160,7 @@ local function build_flat(files, current_file_idx)
 			dir = d
 		end
 
-		-- Prefix before the dimmed region: "▶ ~    foo.lua"
-		local prefix = marker .. status_icon .. "    " .. name
+		local prefix = marker .. status_icon .. " " .. name
 
 		-- root files (dir == "") get a dim "./" indicator
 		local dir_display = dir
@@ -306,7 +294,7 @@ local function build_tree(files, current_file_idx)
 				name = file_icon .. n
 			end
 
-			table.insert(lines, "  " .. marker .. status_icon .. "   " .. name .. note_marker .. binary_tag)
+			table.insert(lines, marker .. status_icon .. " " .. name .. note_marker .. binary_tag)
 			actions_by_line[#lines] = { type = "file", idx = idx }
 
 			if file.expanded then

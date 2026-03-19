@@ -288,12 +288,30 @@ function M.difftool(local_path, remote_path, merged_path)
           end
         end
         if not found then
-          table.insert(all_files, 1, {
-            path = rel, status = "M",
-            local_file = local_p, remote_file = remote_p,
-            expanded = false,
-          })
-          current_idx = 1
+          -- Try suffix match: rel might be a basename while git returns full paths
+          local suffix = "/" .. rel
+          local match_idx = nil
+          for i, f in ipairs(all_files) do
+            if f.path:sub(-#suffix) == suffix or f.path == rel then
+              if match_idx then
+                match_idx = nil  -- ambiguous: multiple matches, give up
+                break
+              end
+              match_idx = i
+            end
+          end
+          if match_idx then
+            all_files[match_idx].local_file = local_p
+            all_files[match_idx].remote_file = remote_p
+            current_idx = match_idx
+          else
+            table.insert(all_files, 1, {
+              path = rel, status = "M",
+              local_file = local_p, remote_file = remote_p,
+              expanded = false,
+            })
+            current_idx = 1
+          end
         end
         opening = false
         if #all_files == 0 then
@@ -325,8 +343,9 @@ function M.difftool(local_path, remote_path, merged_path)
         inject_and_open(rel, local_path, remote_path)
       end)
     else
-      -- Fallback without $MERGED: use basename of remote_path (original behavior)
-      local rel_path = vim.fn.fnamemodify(remote_path, ":t")
+      -- Fallback without $MERGED: use basename of whichever path is not /dev/null
+      local source = remote_path ~= "/dev/null" and remote_path or local_path
+      local rel_path = vim.fn.fnamemodify(source, ":t")
       s.root = vim.fn.getcwd()
       inject_and_open(rel_path, local_path, remote_path)
     end

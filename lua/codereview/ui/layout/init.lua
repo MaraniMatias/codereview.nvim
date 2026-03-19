@@ -650,7 +650,7 @@ function M.setup_quit_handlers(buf)
         return
       end
 
-      local force = vim.v.cmdbang == 1
+      local force = vim.v.cmdbang == 1 or vim.v.cmdbang == true
       local current_win = vim.api.nvim_get_current_win()
 
       if not force and state.get().notes_dirty then

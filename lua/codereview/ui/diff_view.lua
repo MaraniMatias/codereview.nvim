@@ -135,7 +135,10 @@ local function build_full_display(parsed)
   local all_line_type_map = {}
   local display_lnum = 1 + header_offset
 
-  for _, hunk in ipairs(parsed.hunks) do
+  for hunk_idx, hunk in ipairs(parsed.hunks) do
+    if hunk_idx > 1 then
+      display_lnum = display_lnum + 1 -- sep line
+    end
     display_lnum = display_lnum + 1
     for _, l in ipairs(hunk.lines) do
       if l.new_lnum then
@@ -174,7 +177,7 @@ local function get_initial_visible_until(all_line_types, max_diff_lines)
   end
 
   local visible_until = max_diff_lines
-  while visible_until > 1 and all_line_types[visible_until] == "hdr" do
+  while visible_until > 1 and (all_line_types[visible_until] == "hdr" or all_line_types[visible_until] == "sep") do
     visible_until = visible_until - 1
   end
 

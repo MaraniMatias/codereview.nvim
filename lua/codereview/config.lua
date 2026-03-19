@@ -10,8 +10,7 @@ M.defaults = {
 	diff_title = " Diff ",
 	note_truncate_len = 30,    -- truncation of notes in explorer sub-items (chars per line)
 	note_multiline = false,    -- false = collapse note to one line | true = show all lines
-	note_glyph = "⊳",         -- glyph prefix for note rows in explorer; use ">" for ASCII fallback
-	explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
+explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
 	explorer_path_hl = "Comment", -- highlight group for the dimmed directory portion (flat mode)
 	explorer_show_help = true, -- show "(? help)" hint in header; set false to hide
 	explorer_path_separator = "  ", -- separator between filename and dir in flat mode
@@ -108,12 +107,7 @@ local function validate(opts)
 			function(v) return v == nil or type(v) == "boolean" end,
 			"expected a boolean",
 		},
-		note_glyph = {
-			opts.note_glyph,
-			function(v) return v == nil or type(v) == "string" end,
-			"expected a string",
-		},
-		virtual_text_truncate_len = {
+virtual_text_truncate_len = {
 			opts.virtual_text_truncate_len,
 			function(v) return v == nil or (type(v) == "number" and v > 0) end,
 			"expected a positive number",

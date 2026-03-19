@@ -5,6 +5,7 @@ local diff_view = require("codereview.ui.diff_view")
 local diff_state = require("codereview.ui.diff_view.state")
 local layout = require("codereview.ui.layout")
 local note_float = require("codereview.ui.note_float")
+local store = require("codereview.notes.store")
 local explorer_state = require("codereview.ui.explorer.state")
 local view = require("codereview.ui.explorer.view")
 local valid = require("codereview.util.validate")
@@ -226,6 +227,31 @@ function M.save()
   require("codereview.review.exporter").save_with_prompt()
 end
 
+function M.delete_note(force)
+  local action = view.get_current_action()
+  if not action or action.type ~= "note" then
+    return
+  end
+
+  local function do_delete()
+    store.delete(action.filepath, action.line, action.side or "new")
+    view.render()
+    diff_view.refresh_notes()
+    M.clear_last_preview_key()
+    M.preview_current({ preserve_cursor = true })
+  end
+
+  if force then
+    do_delete()
+  else
+    vim.ui.select({ "Yes", "No" }, { prompt = "Delete note?" }, function(choice)
+      if choice == "Yes" then
+        do_delete()
+      end
+    end)
+  end
+end
+
 function M.show_help()
   local km = require("codereview.config").options.keymaps
   local lines = {
@@ -234,6 +260,8 @@ function M.show_help()
     " Explorer",
     " <CR> / l      Open file in diff",
     " " .. (km.toggle_notes or "za") .. "             Toggle notes",
+    " d             Delete note (confirm)",
+    " D             Delete note (force)",
     " " .. (km.next_file or "]f") .. " / " .. (km.prev_file or "[f") .. "         Next / prev file",
     " " .. (km.refresh or "R") .. "             Refresh",
     " " .. (km.quit or "q") .. "             Quit",
@@ -256,7 +284,7 @@ function M.show_help()
     " <C-s> / :w    Save note",
     " <C-d>         Delete note",
     " q             Discard",
-    " <Esc>         Save or discard?",
+    " <Esc>         Save note",
     " ──────────────────────────────",
     " Press any key to close",
   }

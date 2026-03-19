@@ -44,41 +44,43 @@ function M.set_extmark(buf, lnum, note, extmark_id)
   local text_lines = vim.split(full_text, "\n", { plain = true })
   local max_extra = config.options.virtual_text_max_lines or 0
 
-  -- First line: always shown as eol virtual text (truncated)
-  local first_line = text_lines[1] or ""
   local tlen = config.options.virtual_text_truncate_len
+  local first_line = text_lines[1] or ""
   local has_more = #text_lines > 1 or #first_line > tlen
-  if #first_line > tlen then
-    first_line = first_line:sub(1, tlen - 3) .. "..."
-  end
-  local eol_suffix = (has_more and max_extra == 0) and " [...]" or ""
-  local virt_text = { { prefix .. first_line .. eol_suffix, hl } }
 
+  -- Multiline mode: all lines shown below the code line using virt_lines
+  -- Single-line mode (max_extra == 0): first line shown as eol virtual text
   local opts = {
-    virt_text = virt_text,
     virt_text_pos = "eol",
     hl_mode = "combine",
     id = extmark_id,
   }
 
-  -- Extra lines: shown below the code line using virt_lines
   if max_extra > 0 and #text_lines > 1 then
+    -- Multiline: eol marker + all lines below
+    opts.virt_text = { { prefix .. "✎", hl } }
     local virt_lines = {}
     local line_prefix = "  ~ "
-    local remaining = math.min(#text_lines - 1, max_extra)
-    for i = 2, 1 + remaining do
+    local total_to_show = math.min(#text_lines, max_extra + 1)
+    for i = 1, total_to_show do
       local line = text_lines[i] or ""
       if #line > tlen then
         line = line:sub(1, tlen - 3) .. "..."
       end
       table.insert(virt_lines, { { line_prefix .. line, hl } })
     end
-    -- Indicate there are more lines beyond the limit
-    if #text_lines - 1 > max_extra then
-      local omitted = #text_lines - 1 - max_extra
+    if #text_lines > max_extra + 1 then
+      local omitted = #text_lines - max_extra - 1
       table.insert(virt_lines, { { line_prefix .. "(+" .. omitted .. " more)", hl } })
     end
     opts.virt_lines = virt_lines
+  else
+    -- Single-line: truncated eol text
+    if #first_line > tlen then
+      first_line = first_line:sub(1, tlen - 3) .. "..."
+    end
+    local eol_suffix = has_more and " [...]" or ""
+    opts.virt_text = { { prefix .. first_line .. eol_suffix, hl } }
   end
 
   return set_buf_extmark(buf, lnum, opts)
