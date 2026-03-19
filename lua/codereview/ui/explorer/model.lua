@@ -1,6 +1,6 @@
 local M = {}
 
-local store  = require("codereview.notes.store")
+local store = require("codereview.notes.store")
 local config = require("codereview.config")
 
 -- ---------------------------------------------------------------------------
@@ -13,7 +13,9 @@ local function get_file_icon(path)
 		local ok, devicons = pcall(require, "nvim-web-devicons")
 		_devicons = ok and devicons or false
 	end
-	if not _devicons then return "" end
+	if not _devicons then
+		return ""
+	end
 	local ext = path:match("%.([^%.]+)$") or ""
 	local icon = _devicons.get_icon(path, ext, { default = false })
 	return icon and (icon .. " ") or ""
@@ -25,8 +27,12 @@ end
 
 -- default status icons; users can override with explorer_status_icons config.
 local DEFAULT_STATUS_ICONS = {
-	M = "[M]", A = "[A]", D = "[D]",
-	R = "[R]", C = "[C]", U = "[U]",
+	M = "~",
+	A = "+",
+	D = "-",
+	R = "→",
+	C = "+",
+	U = "?",
 }
 
 local function get_status_icons()
@@ -41,8 +47,10 @@ end
 -- Fallback to ASCII ">" when config says so.
 local function note_glyph()
 	local g = config.options.note_glyph
-	if g and g ~= "" then return g end
-	return "⊳"
+	if g and g ~= "" then
+		return g
+	end
+	return ""
 end
 
 -- Split "dir/sub/file.lua" → dir="dir/sub/", name="file.lua".
@@ -70,15 +78,15 @@ end
 -- When config.note_multiline is true each line of the note becomes its own row,
 -- all sharing the same action (they all jump to the same anchor in the diff).
 local function note_rows(filepath, truncate_len)
-	local rows      = {}
+	local rows = {}
 	local multiline = config.options.note_multiline
 
 	local glyph = note_glyph()
 	for _, note in ipairs(store.get_for_file(filepath)) do
-		local side       = note.side or "new"
+		local side = note.side or "new"
 		local side_label = side == "old" and " (del)" or ""
-		local action     = { type = "note", filepath = filepath, line = note.line_start, side = side }
-		local prefix     = "    " .. glyph .. " L" .. note.line_start .. side_label .. ": "
+		local action = { type = "note", filepath = filepath, line = note.line_start, side = side }
+		local prefix = "    " .. glyph .. " L" .. note.line_start .. side_label .. ": "
 		-- Indent for continuation lines: aligns under the text, not the glyph.
 		-- Fixed at 6 spaces ("    X ") so it doesn't shift with line-number width.
 		local cont_indent = "      "
@@ -87,8 +95,7 @@ local function note_rows(filepath, truncate_len)
 			-- Split on real newlines and emit one row per line.
 			local first = true
 			for raw_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
-				local trimmed = raw_line:sub(1, truncate_len)
-					.. (#raw_line > truncate_len and "…" or "")
+				local trimmed = raw_line:sub(1, truncate_len) .. (#raw_line > truncate_len and "…" or "")
 				if first then
 					table.insert(rows, { line = prefix .. trimmed, action = action })
 					first = false
@@ -102,7 +109,7 @@ local function note_rows(filepath, truncate_len)
 		else
 			-- Single-line mode: collapse newlines to spaces (original behaviour).
 			local short = note.text:gsub("\n", " ")
-			local text  = short:sub(1, truncate_len) .. (#short > truncate_len and "…" or "")
+			local text = short:sub(1, truncate_len) .. (#short > truncate_len and "…" or "")
 			table.insert(rows, { line = prefix .. text, action = action })
 		end
 	end
@@ -117,22 +124,20 @@ end
 -- ---------------------------------------------------------------------------
 
 local function build_flat(files, current_file_idx)
-	local lines           = {}
+	local lines = {}
 	local actions_by_line = {}
-	local dim_by_line     = {}
+	local dim_by_line = {}
 	-- track where note_marker/binary_tag start so we can highlight them
 	-- separately instead of letting them fall inside the dim region.
-	local tag_ranges      = {}  -- lnum → { col_start, col_end }[]
-	local truncate_len    = config.options.note_truncate_len
-	local STATUS_ICONS    = get_status_icons()
+	local tag_ranges = {} -- lnum → { col_start, col_end }[]
+	local truncate_len = config.options.note_truncate_len
+	local STATUS_ICONS = get_status_icons()
 
-	-- E06/E16: build header with optional help hint and layout indicator
-	local total  = #files
-	local help_hint  = config.options.explorer_show_help ~= false and "  (? help)" or ""
-	local layout_tag = " [flat]"  -- indicate active layout
-	local header = total > 0
-		and string.format("CodeReview [%d/%d]" .. layout_tag .. help_hint, current_file_idx or 0, total)
-		or  ("CodeReview" .. layout_tag .. help_hint)
+	-- E06/E16: build header with optional help hint
+	local total = #files
+	local help_hint = config.options.explorer_show_help ~= false and "  (? help)" or ""
+	local header = total > 0 and string.format("CodeReview [%d/%d]" .. help_hint, current_file_idx or 0, total)
+		or ("CodeReview" .. help_hint)
 	table.insert(lines, header)
 
 	-- separator between header and file list
@@ -149,25 +154,25 @@ local function build_flat(files, current_file_idx)
 		-- use a fixed-width marker so alignment is stable regardless
 		-- of whether ▶ is multibyte.  "▶ " vs "  " both occupy 2 cells,
 		-- but we pad with strdisplaywidth to be safe.
-		local marker      = (idx == current_file_idx) and "▶ " or "  "
-		local note_count  = store.count_for_file(file.path)
+		local marker = " "
+		local note_count = store.count_for_file(file.path)
 		local note_marker = note_count > 0 and ("  (" .. note_count .. ")") or ""
-		local binary_tag  = file.is_binary and "  [binary]" or ""
-		local file_icon   = get_file_icon(file.path)
+		local binary_tag = file.is_binary and "  [binary]" or ""
+		local file_icon = get_file_icon(file.path)
 
 		local name, dir
 		if file.status == "R" and file.old_path and file.old_path ~= "" then
 			local label, rename_dir = rename_label_flat(file)
 			name = file_icon .. label
-			dir  = rename_dir  -- nil when dirs differ (no dim in that case)
+			dir = rename_dir -- nil when dirs differ (no dim in that case)
 		else
 			local d, n = split_path(file.path)
 			name = file_icon .. n
-			dir  = d
+			dir = d
 		end
 
-		-- Prefix before the dimmed region: "▶ [M]  foo.lua"
-		local prefix = marker .. status_icon .. "  " .. name
+		-- Prefix before the dimmed region: "▶ ~    foo.lua"
+		local prefix = marker .. status_icon .. "    " .. name
 
 		-- root files (dir == "") get a dim "./" indicator
 		local dir_display = dir
@@ -186,7 +191,7 @@ local function build_flat(files, current_file_idx)
 		local exp_width = config.options.explorer_width or 30
 		if vim.fn.strdisplaywidth(full_line) > exp_width then
 			-- Truncate the dim_part to fit, keeping prefix + tags intact
-			local avail = exp_width - vim.fn.strdisplaywidth(prefix .. note_marker .. binary_tag) - 1  -- -1 for "…"
+			local avail = exp_width - vim.fn.strdisplaywidth(prefix .. note_marker .. binary_tag) - 1 -- -1 for "…"
 			if avail > 0 and dir_display and dir_display ~= "" then
 				local truncated_dir = vim.fn.strcharpart(sep .. dir_display, 0, avail)
 				dim_part = truncated_dir .. "…"
@@ -199,8 +204,8 @@ local function build_flat(files, current_file_idx)
 		-- Track where the dim region starts (byte offset, 0-indexed for nvim highlight API)
 		-- E01 fix: dim only covers the dir portion, NOT the trailing tags.
 		if dir_display and dir_display ~= "" then
-			local dim_start = #prefix  -- byte where "  dir/" starts (0-indexed == byte count)
-			local dim_end   = #prefix + #dim_part  -- byte where dir portion ends
+			local dim_start = #prefix -- byte where "  dir/" starts (0-indexed == byte count)
+			local dim_end = #prefix + #dim_part -- byte where dir portion ends
 			dim_by_line[#lines] = { col_start = math.max(0, dim_start), col_end = dim_end }
 		end
 
@@ -240,18 +245,16 @@ end
 -- ---------------------------------------------------------------------------
 
 local function build_tree(files, current_file_idx)
-	local lines           = {}
+	local lines = {}
 	local actions_by_line = {}
-	local truncate_len    = config.options.note_truncate_len
-	local STATUS_ICONS    = get_status_icons()
+	local truncate_len = config.options.note_truncate_len
+	local STATUS_ICONS = get_status_icons()
 
-	-- E06/E16: build header with optional help hint and layout indicator
-	local total  = #files
-	local help_hint  = config.options.explorer_show_help ~= false and "  (? help)" or ""
-	local layout_tag = " [tree]"  -- indicate active layout
-	local header = total > 0
-		and string.format("CodeReview [%d/%d]" .. layout_tag .. help_hint, current_file_idx or 0, total)
-		or  ("CodeReview" .. layout_tag .. help_hint)
+	-- E06/E16: build header with optional help hint
+	local total = #files
+	local help_hint = config.options.explorer_show_help ~= false and "  (? help)" or ""
+	local header = total > 0 and string.format("CodeReview [%d/%d]" .. help_hint, current_file_idx or 0, total)
+		or ("CodeReview" .. help_hint)
 	table.insert(lines, header)
 
 	-- separator between header and file list
@@ -265,7 +268,7 @@ local function build_tree(files, current_file_idx)
 
 	-- Group files by directory, preserving insertion order.
 	local dir_order = {}
-	local by_dir    = {}
+	local by_dir = {}
 	for idx, file in ipairs(files) do
 		-- For renames use the new path's directory.
 		local dir = split_path(file.path)
@@ -284,14 +287,14 @@ local function build_tree(files, current_file_idx)
 		-- actions_by_line[#lines] stays nil intentionally
 
 		for _, entry in ipairs(by_dir[dir]) do
-			local idx         = entry.idx
-			local file        = entry.file
+			local idx = entry.idx
+			local file = entry.file
 			local status_icon = STATUS_ICONS[file.status] or "[?]"
-			local marker      = (idx == current_file_idx) and "▶ " or "  "
-			local note_count  = store.count_for_file(file.path)
+			local marker = " "
+			local note_count = store.count_for_file(file.path)
 			local note_marker = note_count > 0 and (" (" .. note_count .. ")") or ""
-			local binary_tag  = file.is_binary and " [binary]" or ""
-			local file_icon   = get_file_icon(file.path)
+			local binary_tag = file.is_binary and " [binary]" or ""
+			local file_icon = get_file_icon(file.path)
 
 			local name
 			if file.status == "R" and file.old_path and file.old_path ~= "" then
@@ -303,7 +306,7 @@ local function build_tree(files, current_file_idx)
 				name = file_icon .. n
 			end
 
-			table.insert(lines, "  " .. marker .. status_icon .. " " .. name .. note_marker .. binary_tag)
+			table.insert(lines, "  " .. marker .. status_icon .. "   " .. name .. note_marker .. binary_tag)
 			actions_by_line[#lines] = { type = "file", idx = idx }
 
 			if file.expanded then
