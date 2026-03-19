@@ -1,26 +1,67 @@
 local M = {}
 local store = require("codereview.notes.store")
+local config = require("codereview.config")
+local valid = require("codereview.util.validate")
 
 -- Currently open float context
 local float_ctx = nil
+-- Re-entry guard: true while close/confirm is running
+local closing = false
+-- Re-entry guard: true while ask_save_or_discard prompt is visible
+local asking = false
 
--- Ask user whether to save or discard the current note (callable externally)
+-- Ask user whether to save, discard, or delete the current note.
+-- Shows options in the float footer and waits for a single keypress.
+-- When editing an existing note, also offers "delete".
+-- Esc on the prompt returns to editing as if nothing happened.
 function M.ask_save_or_discard()
-  if not float_ctx then return end
+  if not float_ctx or asking then return end
+  asking = true
   local ctx = float_ctx
   local lines = vim.api.nvim_buf_get_lines(ctx.note_buf, 0, -1, false)
   local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
   if text == "" then
+    asking = false
     M.close()
     return
   end
-  local choice = vim.fn.confirm("Save note?", "&Yes\n&No\n&Cancel", 1)
-  if choice == 1 then
-    M.confirm()
-  elseif choice == 2 then
-    M.close()
+
+  -- Show options in the float footer
+  local footer = ctx.is_edit
+    and " Save? (y)es · (n)o · (d)iscard · <Esc> cancel "
+    or  " Save? (y)es · (n)o · <Esc> cancel "
+  if valid.win(ctx.note_win) then
+    vim.api.nvim_win_set_config(ctx.note_win, { footer = footer, footer_pos = "center" })
+    vim.cmd("redraw")
   end
-  -- 0 or 3 (Cancel): stay in float
+
+  local ok, ch = pcall(vim.fn.getcharstr)
+  -- Restore footer (remove it)
+  if valid.win(ctx.note_win) then
+    vim.api.nvim_win_set_config(ctx.note_win, { footer = "", footer_pos = "center" })
+    vim.cmd("redraw")
+  end
+
+  asking = false
+  if not ok or ch == "\27" then
+    -- Esc or error → return to editing
+    return
+  end
+
+  local key = ch:lower()
+  if key == "y" or ch == "\r" then
+    M.confirm()
+  elseif key == "n" then
+    M.close()
+  elseif key == "d" and ctx.is_edit then
+    -- Clear buffer and confirm — empty text triggers deletion in store
+    if float_ctx then
+      vim.api.nvim_set_option_value("modifiable", true, { buf = float_ctx.note_buf })
+      vim.api.nvim_buf_set_lines(float_ctx.note_buf, 0, -1, false, { "" })
+    end
+    M.confirm()
+  end
+  -- Any other key → do nothing, return to editing
 end
 
 -- Open the note floating window
@@ -42,10 +83,13 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   local side_label = side == "old" and " (deleted)" or ""
   local top_lines = {}
 
+  -- show line numbers in code context block for reference
   if code and code ~= "" then
     table.insert(top_lines, "```" .. ext)
+    local code_lnum = line_start
     for line in (code .. "\n"):gmatch("([^\n]*)\n") do
-      table.insert(top_lines, line)
+      table.insert(top_lines, string.format("%d │ %s", code_lnum, line))
+      code_lnum = code_lnum + 1
     end
     table.insert(top_lines, "```")
   end
@@ -58,8 +102,10 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   local note_lines = existing_text and vim.split(existing_text, "\n") or { "" }
 
   -- Calculate window size and position
+  -- configurable float width instead of hardcoded 80
   local ui = vim.api.nvim_list_uis()[1]
-  local width = math.min(80, ui.width - 10)
+  local max_width = config.options.note_float_width or 80
+  local width = math.min(max_width, ui.width - 10)
   local total_height = math.min(30, ui.height - 6)
   local col = math.floor((ui.width - width) / 2)
 
@@ -87,6 +133,9 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   vim.api.nvim_buf_set_lines(top_buf, 0, -1, false, top_lines)
   vim.api.nvim_set_option_value("modifiable", false, { buf = top_buf })
 
+  -- use the plugin's configured border style instead of hardcoded "rounded"
+  local border = config.options.border or "rounded"
+
   -- Create top floating window (not focused)
   local top_win = vim.api.nvim_open_win(top_buf, false, {
     relative = "editor",
@@ -95,7 +144,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     row = top_row,
     col = col,
     style = "minimal",
-    border = "rounded",
+    border = border,
     title = top_title,
     title_pos = "center",
     focusable = false,
@@ -122,11 +171,9 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     row = bottom_row,
     col = col,
     style = "minimal",
-    border = "rounded",
+    border = border,
     title = note_title,
     title_pos = "center",
-    footer = " w save  ·  <Esc> save?  ·  q discard ",
-    footer_pos = "center",
     zindex = 50,
   })
 
@@ -147,6 +194,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     line_end = line_end,
     code = code,
     side = side,
+    is_edit = existing_text ~= nil,
   }
 
   -- Clean up float_ctx if Neovim closes either window externally (:qa, etc.)
@@ -156,7 +204,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     callback = function()
       if float_ctx and float_ctx.note_win == note_win then
         -- Close top window too if still valid
-        if vim.api.nvim_win_is_valid(top_win) then
+        if valid.win(top_win) then
           vim.api.nvim_win_close(top_win, true)
         end
         float_ctx = nil
@@ -170,7 +218,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     callback = function()
       if float_ctx and float_ctx.top_win == top_win then
         -- Close note window too if still valid
-        if vim.api.nvim_win_is_valid(note_win) then
+        if valid.win(note_win) then
           vim.api.nvim_win_close(note_win, true)
         end
         float_ctx = nil
@@ -180,11 +228,6 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
 
   -- Keymaps (on note buffer only)
   local opts = { noremap = true, silent = true, buffer = note_buf }
-
-  -- Save with w (like :w in vim), normal mode only
-  vim.keymap.set("n", "w", function()
-    M.confirm()
-  end, opts)
 
   -- Esc in insert mode: exit insert then ask save/discard
   vim.keymap.set("i", "<Esc>", function()
@@ -197,18 +240,15 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     M.ask_save_or_discard()
   end, opts)
 
-  -- q: discard without asking
-  vim.keymap.set("n", "q", function()
-    M.close()
-  end, opts)
-
-  -- Autocmd to close on buffer leave
+  -- Autocmd to handle buffer leave — ask save/discard instead of silent close.
+  -- NOTE: intentionally NOT once=true so that if the user cancels the prompt
+  -- (Esc) and then navigates away again, they get another chance to save.
+  -- The guards (float_ctx, closing, asking) prevent double-firing.
   vim.api.nvim_create_autocmd("BufLeave", {
     buffer = note_buf,
-    once = true,
     callback = function()
-      if float_ctx then
-        M.close()
+      if float_ctx and not closing then
+        vim.schedule(M.ask_save_or_discard)
       end
     end,
   })
@@ -216,7 +256,8 @@ end
 
 -- Confirm the note (save it)
 function M.confirm()
-  if not float_ctx then return end
+  if not float_ctx or closing then return end
+  closing = true
   local ctx = float_ctx
 
   -- Get the note text (entire note buffer)
@@ -224,6 +265,7 @@ function M.confirm()
   local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
 
   if text == "" then
+    closing = false
     M.close()
     return
   end
@@ -234,7 +276,7 @@ function M.confirm()
   -- Close both floats
   float_ctx = nil
   for _, win in ipairs({ ctx.note_win, ctx.top_win }) do
-    if vim.api.nvim_win_is_valid(win) then
+    if valid.win(win) then
       vim.api.nvim_win_close(win, true)
     end
   end
@@ -252,38 +294,40 @@ function M.confirm()
   require("codereview.ui.diff_view").refresh_notes()
   require("codereview.ui.explorer").render()
 
-  -- Mark buffers as modified so :wq triggers BufWriteCmd
-  for _, buf_key in ipairs({ "diff", "explorer" }) do
-    local buf = s.buffers[buf_key]
-    if buf and vim.api.nvim_buf_is_valid(buf) then
-      pcall(function()
-        vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-        vim.api.nvim_set_option_value("modified", true, { buf = buf })
-        vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
-      end)
-    end
-  end
+  closing = false
 
+  -- Restore focus to diff view so cursor doesn't get trapped
+  require("codereview.ui.layout").focus_diff()
+
+  -- use nvim_echo for consistency with the rest of the plugin
   local side_suffix = ctx.side == "old" and " (deleted)" or ""
-  vim.notify("Note saved for L" .. ctx.line_start .. side_suffix, vim.log.levels.INFO)
+  vim.api.nvim_echo(
+    { { "CodeReview: note saved for L" .. ctx.line_start .. side_suffix, "Comment" } },
+    false, {}
+  )
 end
 
 function M.is_open()
   return float_ctx ~= nil
     and float_ctx.note_win ~= nil
-    and vim.api.nvim_win_is_valid(float_ctx.note_win)
+    and valid.win(float_ctx.note_win)
 end
 
 -- Close without saving
 function M.close()
-  if not float_ctx then return end
+  if not float_ctx or closing then return end
+  closing = true
   local ctx = float_ctx
   float_ctx = nil
   for _, win in ipairs({ ctx.note_win, ctx.top_win }) do
-    if vim.api.nvim_win_is_valid(win) then
+    if valid.win(win) then
       vim.api.nvim_win_close(win, true)
     end
   end
+  closing = false
+
+  -- Restore focus to diff view so cursor doesn't get trapped
+  require("codereview.ui.layout").focus_diff()
 end
 
 return M

@@ -32,48 +32,7 @@ local initial_state = {
       actions_by_line = {},
       last_preview_key = nil,
     },
-    diff_old = {       -- split mode: old/left side display state
-      lines = {},
-      line_types = {},
-      line_map = {},
-      new_to_display = {},
-      all_lines = {},
-      all_line_types = {},
-      all_line_map = {},
-      all_new_to_display = {},
-      all_old_line_map = {},
-      all_old_to_display = {},
-      all_line_type_map = {},
-      old_line_map = {},
-      old_to_display = {},
-      line_type_map = {},
-      visible_extmarks = {},
-      visible_until = 0,
-      is_truncated = false,
-      truncation_line = nil,
-      pending_jump_lnum = nil,
-    },
-    diff = {
-      lines = {},
-      line_types = {},
-      line_map = {},
-      new_to_display = {},
-      all_lines = {},
-      all_line_types = {},
-      all_line_map = {},
-      all_new_to_display = {},
-      all_old_line_map = {},
-      all_old_to_display = {},
-      all_line_type_map = {},
-      old_line_map = {},
-      old_to_display = {},
-      line_type_map = {},
-      visible_extmarks = {},
-      visible_until = 0,
-      is_truncated = false,
-      truncation_line = nil,
-      pending_jump_lnum = nil,
-    },
+    -- diff and diff_old panels are lazily created by diff_view/state.ensure_panel()
   },
   prev_win = nil,
   tab = nil,
@@ -91,6 +50,30 @@ end
 
 function M.reset()
   M.state = vim.deepcopy(initial_state)
+end
+
+function M.set_mode(mode)
+  M.state.mode = mode
+end
+
+function M.set_files(files)
+  M.state.files = files
+end
+
+function M.set_current_file_idx(idx)
+  M.state.current_file_idx = idx
+end
+
+function M.set_root(root)
+  M.state.root = root
+end
+
+function M.mark_notes_dirty()
+  M.state.notes_dirty = true
+end
+
+function M.mark_notes_clean()
+  M.state.notes_dirty = false
 end
 
 return M

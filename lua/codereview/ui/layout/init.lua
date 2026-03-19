@@ -1,36 +1,20 @@
 local M = {}
 local config = require("codereview.config")
 local state = require("codereview.state")
+local valid = require("codereview.util.validate")
+local buf_util = require("codereview.util.buf")
+local factory = require("codereview.ui.layout.factory")
 
 local lifecycle_group = vim.api.nvim_create_augroup("CodeReviewLayoutLifecycle", { clear = false })
 local buffer_handlers_group = vim.api.nvim_create_augroup("CodeReviewBufferHandlers", { clear = false })
 local active_session_id = 0
 local blocked_close_session_id = nil
+local saved_statusline = nil  -- saved statusline to restore on close
 local teardown_in_progress = false
 local teardown_scheduled = false
 local write_in_progress = false
 local pending_close_after_save = false
 local setup_lifecycle_autocmds
-
-local function is_valid_window(win)
-  return win ~= nil and vim.api.nvim_win_is_valid(win)
-end
-
-local function is_valid_buffer(buf)
-  return buf ~= nil and vim.api.nvim_buf_is_valid(buf)
-end
-
-local function is_valid_tab(tab)
-  return tab ~= nil and vim.api.nvim_tabpage_is_valid(tab)
-end
-
-local function window_belongs_to_tab(win, tab)
-  return vim.api.nvim_win_get_tabpage(win) == tab
-end
-
-local function is_split_mode()
-  return config.options.diff_view == "split"
-end
 
 local function has_layout_state(s)
   return s.tab ~= nil
@@ -56,113 +40,21 @@ local function clear_buffer_handler_autocmds(buf, event)
   })
 end
 
-local function set_buffer_options(buf, options)
-  for name, value in pairs(options) do
-    vim.api.nvim_set_option_value(name, value, { buf = buf })
-  end
-end
-
-local function set_window_options(win, options)
-  for name, value in pairs(options) do
-    vim.api.nvim_set_option_value(name, value, { win = win })
-  end
-end
-
-local function create_explorer_buffer()
-  local explorer_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(explorer_buf, "codereview://explorer")
-  set_buffer_options(explorer_buf, {
-    buftype = "acwrite",
-    bufhidden = "wipe",
-    swapfile = false,
-    modifiable = false,
-    filetype = "codereview-explorer",
-  })
-  return explorer_buf
-end
-
-local function create_diff_buffer()
-  local diff_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(diff_buf, "codereview://diff")
-  set_buffer_options(diff_buf, {
-    buftype = "acwrite",
-    bufhidden = "wipe",
-    swapfile = false,
-    modifiable = false,
-  })
-  return diff_buf
-end
-
-local function create_diff_old_buffer()
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(buf, "codereview://diff-old")
-  set_buffer_options(buf, {
-    buftype = "acwrite",
-    bufhidden = "wipe",
-    swapfile = false,
-    modifiable = false,
-  })
-  return buf
-end
-
-local function create_diff_new_buffer()
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(buf, "codereview://diff-new")
-  set_buffer_options(buf, {
-    buftype = "acwrite",
-    bufhidden = "wipe",
-    swapfile = false,
-    modifiable = false,
-  })
-  return buf
-end
-
-local function configure_panel_window(win)
-  set_window_options(win, {
-    wrap = false,
-    cursorline = true,
-  })
-end
-
-local function compute_layout()
-  local cfg = config.options
-  local total_w = vim.o.columns
-  local total_h = vim.o.lines - vim.o.cmdheight - (vim.o.laststatus > 0 and 1 or 0)
-  local exp_w = cfg.explorer_width
-  local h = total_h - 2  -- top + bottom border
-
-  if is_split_mode() then
-    -- 3-panel: explorer | diff_old | diff_new
-    local diff_area_col = exp_w + 2
-    local diff_area_w = total_w - diff_area_col
-    local half_w = math.floor((diff_area_w - 2) / 2) -- -2 for border between panels
-    local old_w = math.max(half_w, 10)
-    local new_col = diff_area_col + old_w + 2
-    local new_w = math.max(total_w - new_col - 2, 10)
-    return {
-      explorer = { row = 0, col = 0, width = math.max(exp_w, 10), height = math.max(h, 5) },
-      diff_old = { row = 0, col = diff_area_col, width = old_w, height = math.max(h, 5) },
-      diff_new = { row = 0, col = new_col, width = new_w, height = math.max(h, 5) },
-    }
-  end
-
-  -- Unified: 2-panel explorer | diff
-  local diff_col = exp_w + 2
-  local diff_w = total_w - diff_col - 2
-  return {
-    explorer = { row = 0, col = 0, width = math.max(exp_w, 10), height = math.max(h, 5) },
-    diff = { row = 0, col = diff_col, width = math.max(diff_w, 20), height = math.max(h, 5) },
-  }
-end
+local create_explorer_buffer = factory.create_explorer_buffer
+local create_diff_buffer = factory.create_diff_buffer
+local create_diff_old_buffer = factory.create_diff_old_buffer
+local create_diff_new_buffer = factory.create_diff_new_buffer
+local configure_panel_window = factory.configure_panel_window
+local compute_layout = factory.compute_layout
 
 local function restore_previous_window(prev_win)
-  if is_valid_window(prev_win) then
+  if valid.win(prev_win) then
     pcall(vim.api.nvim_set_current_win, prev_win)
   end
 end
 
 local function call_in_tab(tab, callback)
-  if not is_valid_tab(tab) then
+  if not valid.tab(tab) then
     return false
   end
 
@@ -175,7 +67,7 @@ local function call_in_tab(tab, callback)
     return callback()
   end)
 
-  if current_tab ~= tab and is_valid_tab(current_tab) then
+  if current_tab ~= tab and valid.tab(current_tab) then
     pcall(vim.api.nvim_set_current_tabpage, current_tab)
   end
 
@@ -183,8 +75,15 @@ local function call_in_tab(tab, callback)
 end
 
 local function dismantle_review_tab(review_tab, buffers)
-  if not is_valid_tab(review_tab) then
+  if not valid.tab(review_tab) then
     return true
+  end
+
+  -- build a set of our own buffers so we only close windows that belong
+  -- to the plugin, leaving windows from other plugins or user splits untouched.
+  local our_bufs = {}
+  for _, buf in ipairs(buffers) do
+    our_bufs[buf] = true
   end
 
   local ok = call_in_tab(review_tab, function()
@@ -192,8 +91,14 @@ local function dismantle_review_tab(review_tab, buffers)
 
     for idx = #wins, 2, -1 do
       local win = wins[idx]
-      if is_valid_window(win) then
-        pcall(vim.api.nvim_win_close, win, true)
+      if valid.win(win) then
+        local win_buf = vim.api.nvim_win_get_buf(win)
+        -- only close if the window holds one of our buffers or has a
+        -- codereview:// buffer name
+        local buf_name = vim.api.nvim_buf_get_name(win_buf)
+        if our_bufs[win_buf] or buf_name:match("^codereview://") then
+          pcall(vim.api.nvim_win_close, win, true)
+        end
       end
     end
 
@@ -205,7 +110,7 @@ local function dismantle_review_tab(review_tab, buffers)
   end
 
   for _, buf in ipairs(buffers) do
-    if is_valid_buffer(buf) then
+    if valid.buf(buf) then
       pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
   end
@@ -219,23 +124,28 @@ local function finalize_close(prev_win)
   blocked_close_session_id = nil
   teardown_in_progress = false
   teardown_scheduled = false
+  -- restore original statusline
+  if saved_statusline ~= nil then
+    vim.o.statusline = saved_statusline
+    saved_statusline = nil
+  end
   restore_previous_window(prev_win)
 end
 
 local function restore_blocked_layout()
   local s = state.get()
-  if not is_valid_tab(s.tab) then
+  if not valid.tab(s.tab) then
     return false
   end
 
-  local explorer_missing = not is_valid_window(s.windows.explorer) or not is_valid_buffer(s.buffers.explorer)
+  local explorer_missing = not valid.win(s.windows.explorer) or not valid.buf(s.buffers.explorer)
 
   local diff_missing
-  if is_split_mode() then
-    diff_missing = not is_valid_window(s.windows.diff_old) or not is_valid_buffer(s.buffers.diff_old)
-      or not is_valid_window(s.windows.diff_new) or not is_valid_buffer(s.buffers.diff_new)
+  if config.is_split_mode() then
+    diff_missing = not valid.win(s.windows.diff_old) or not valid.buf(s.buffers.diff_old)
+      or not valid.win(s.windows.diff_new) or not valid.buf(s.buffers.diff_new)
   else
-    diff_missing = not is_valid_window(s.windows.diff) or not is_valid_buffer(s.buffers.diff)
+    diff_missing = not valid.win(s.windows.diff) or not valid.buf(s.buffers.diff)
   end
 
   if not explorer_missing and not diff_missing then
@@ -280,7 +190,7 @@ local function restore_blocked_layout()
     end
 
     if diff_missing then
-      if is_split_mode() then
+      if config.is_split_mode() then
         local old_buf = create_diff_old_buffer()
         local old_win = vim.api.nvim_open_win(old_buf, false, {
           relative = "editor",
@@ -301,7 +211,7 @@ local function restore_blocked_layout()
         })
         for _, w in ipairs({ old_win, new_win }) do
           configure_panel_window(w)
-          set_window_options(w, { scrollbind = true, cursorbind = true })
+          buf_util.set_win_options(w, { scrollbind = true, cursorbind = true })
         end
         s.windows.diff_old = old_win
         s.windows.diff_new = new_win
@@ -309,6 +219,8 @@ local function restore_blocked_layout()
         s.buffers.diff_new = new_buf
         diff_view.setup_keymaps(old_buf)
         diff_view.setup_keymaps(new_buf)
+        -- re-sync scroll state after recreating split panels
+        pcall(vim.cmd, "syncbind")
       else
         local diff_buf = create_diff_buffer()
         local diff_win = vim.api.nvim_open_win(diff_buf, false, {
@@ -329,7 +241,7 @@ local function restore_blocked_layout()
       end
     end
 
-    if is_valid_window(current_win) then
+    if valid.win(current_win) then
       pcall(vim.api.nvim_set_current_win, current_win)
     end
   end)
@@ -375,7 +287,7 @@ local function schedule_external_teardown(session_id)
       end
     end
 
-    if is_valid_tab(s.tab) then
+    if valid.tab(s.tab) then
       M.close(true)
       return
     end
@@ -415,9 +327,12 @@ setup_lifecycle_autocmds = function(session_id, wins, bufs)
     })
   end
 
+  -- guard resize callback with session_id to prevent stale autocmds
+  -- from a previous session from firing.
   vim.api.nvim_create_autocmd("VimResized", {
     group = lifecycle_group,
     callback = function()
+      if session_id ~= active_session_id then return end
       M.resize()
     end,
   })
@@ -428,7 +343,7 @@ function M._setup_current_lifecycle_autocmds()
   local s = state.get()
   local wins = { s.windows.explorer }
   local bufs = { s.buffers.explorer }
-  if is_split_mode() then
+  if config.is_split_mode() then
     table.insert(wins, s.windows.diff_old)
     table.insert(wins, s.windows.diff_new)
     table.insert(bufs, s.buffers.diff_old)
@@ -459,6 +374,8 @@ function M.create()
   local base_win = vim.api.nvim_get_current_win()
   local bg_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_win_set_buf(base_win, bg_buf)
+  -- save the original statusline before overwriting
+  saved_statusline = vim.o.statusline
   vim.api.nvim_set_option_value("statusline", " ", { win = base_win })
 
   -- Compute float dimensions
@@ -488,7 +405,7 @@ function M.create()
     explorer_buf = explorer_buf,
   }
 
-  if is_split_mode() then
+  if config.is_split_mode() then
     -- Split mode: create two diff panels (old + new)
     local diff_old_buf = create_diff_old_buffer()
     local diff_old_win = vim.api.nvim_open_win(diff_old_buf, false, {
@@ -522,7 +439,7 @@ function M.create()
 
     for _, win in ipairs({ diff_old_win, diff_new_win }) do
       configure_panel_window(win)
-      set_window_options(win, { scrollbind = true, cursorbind = true })
+      buf_util.set_win_options(win, { scrollbind = true, cursorbind = true })
     end
 
     s.windows.diff_old = diff_old_win
@@ -579,7 +496,7 @@ function M.resize()
     width = dims.explorer.width,
     height = dims.explorer.height,
   })
-  if is_split_mode() then
+  if config.is_split_mode() then
     vim.api.nvim_win_set_config(s.windows.diff_old, {
       relative = "editor",
       row = dims.diff_old.row, col = dims.diff_old.col,
@@ -597,6 +514,12 @@ function M.resize()
       width = dims.diff.width, height = dims.diff.height,
     })
   end
+
+  -- re-render content so virtual text, truncation lines, treesitter
+  -- highlights, and explorer layout stay in sync with the new dimensions.
+  local diff_view = require("codereview.ui.diff_view")
+  diff_view.refresh_notes()
+  require("codereview.ui.explorer.view").render()
 end
 
 -- Close the layout and clean up
@@ -616,7 +539,7 @@ function M.close(force)
 
   for _, key in ipairs({ "diff", "diff_old", "diff_new", "explorer" }) do
     local win = s.windows[key]
-    if is_valid_window(win) then
+    if valid.win(win) then
       pcall(vim.api.nvim_win_close, win, true)
     end
   end
@@ -629,19 +552,29 @@ function M.close(force)
     -- call it AFTER qa (it is only reached if qa fails for some reason).
     -- In single-file difftool mode, use cq! (exit code 1) so git stops
     -- iterating over remaining files.
-    local exit_cmd = s.single_file_difftool and "cq!" or (force and "qa!" or "qa")
-    pcall(vim.cmd, exit_cmd)
+    if s.single_file_difftool then
+      pcall(vim.cmd, "cq!")
+    else
+      -- Try tabclose first to avoid discarding external buffers (L03 fix).
+      -- Only fall back to qa/qa! if we're on the last tab.
+      local tabs = vim.api.nvim_list_tabpages()
+      if #tabs > 1 then
+        pcall(vim.cmd, force and "tabclose!" or "tabclose")
+      else
+        pcall(vim.cmd, force and "qa!" or "qa")
+      end
+    end
     finalize_close(prev_win)
     return true
   end
 
-  local closed = not is_valid_tab(review_tab)
+  local closed = not valid.tab(review_tab)
 
-  if is_valid_tab(review_tab) then
+  if valid.tab(review_tab) then
     local tab_number = vim.api.nvim_tabpage_get_number(review_tab)
     local close_cmd = force and ("tabclose! %d"):format(tab_number) or ("tabclose %d"):format(tab_number)
     local ok = pcall(vim.cmd, close_cmd)
-    closed = ok or not is_valid_tab(review_tab)
+    closed = ok or not valid.tab(review_tab)
   end
 
   if not closed and force then
@@ -661,15 +594,26 @@ function M.close(force)
   return true
 end
 
--- Close safely, warning if there are unsaved notes
-function M.safe_close(force)
+-- Quit with interactive prompt when notes are dirty.
+-- Called from QuitPre and the `q` keymap.
+function M.quit_with_prompt()
   local s = state.get()
-  if not force and s.notes_dirty then
-    vim.notify(
-      "E37: Review has unsaved notes. Use :q! to force or :w to save.",
-      vim.log.levels.WARN
-    )
-    return false
+  if s.notes_dirty then
+    local prompt = require("codereview.util.prompt")
+    local choice = prompt.choose("Unsaved notes.", {
+      { key = "s", label = "save",    value = "save" },
+      { key = "d", label = "discard", value = "discard" },
+      { key = "c", label = "cancel",  value = "cancel" },
+    })
+    if choice == "save" then
+      require("codereview.review.exporter").save_with_prompt(function(success)
+        if success then M.close(true) end
+      end)
+    elseif choice == "discard" then
+      M.close(true)
+    end
+    -- "cancel" or nil → stay in review
+    return choice == "save" or choice == "discard"
   end
   return M.close(true)
 end
@@ -717,19 +661,6 @@ function M.setup_quit_handlers(buf)
         return
       end
 
-      local force = vim.v.cmdbang == 1
-      local current_win = vim.api.nvim_get_current_win()
-
-      if not force and state.get().notes_dirty then
-        vim.v.event.abort = true
-        blocked_close_session_id = active_session_id
-        M.safe_close(false)
-        if is_valid_window(current_win) then
-          pcall(vim.api.nvim_set_current_win, current_win)
-        end
-        return
-      end
-
       -- If the plugin state was already cleaned up (e.g. after a partially
       -- failed close), don't abort the quit – let Neovim close normally.
       if not has_layout_state(state.get()) then
@@ -737,8 +668,9 @@ function M.setup_quit_handlers(buf)
       end
 
       vim.v.event.abort = true
-      local closed = M.safe_close(force)
-      if not closed and is_valid_window(current_win) then
+      local current_win = vim.api.nvim_get_current_win()
+      local closed = M.quit_with_prompt()
+      if not closed and valid.win(current_win) then
         pcall(vim.api.nvim_set_current_win, current_win)
       end
     end,
@@ -749,36 +681,36 @@ end
 function M.is_open()
   local s = state.get()
 
-  if not is_valid_tab(s.tab) then
+  if not valid.tab(s.tab) then
     return false
   end
 
-  if not is_valid_window(s.windows.explorer) or not is_valid_buffer(s.buffers.explorer) then
+  if not valid.win(s.windows.explorer) or not valid.buf(s.buffers.explorer) then
     return false
   end
 
-  if not window_belongs_to_tab(s.windows.explorer, s.tab) then
+  if not valid.win_in_tab(s.windows.explorer, s.tab) then
     return false
   end
 
-  if is_split_mode() then
-    if not is_valid_window(s.windows.diff_old) or not is_valid_buffer(s.buffers.diff_old) then
+  if config.is_split_mode() then
+    if not valid.win(s.windows.diff_old) or not valid.buf(s.buffers.diff_old) then
       return false
     end
-    if not is_valid_window(s.windows.diff_new) or not is_valid_buffer(s.buffers.diff_new) then
+    if not valid.win(s.windows.diff_new) or not valid.buf(s.buffers.diff_new) then
       return false
     end
-    if not window_belongs_to_tab(s.windows.diff_old, s.tab) then
+    if not valid.win_in_tab(s.windows.diff_old, s.tab) then
       return false
     end
-    if not window_belongs_to_tab(s.windows.diff_new, s.tab) then
+    if not valid.win_in_tab(s.windows.diff_new, s.tab) then
       return false
     end
   else
-    if not is_valid_window(s.windows.diff) or not is_valid_buffer(s.buffers.diff) then
+    if not valid.win(s.windows.diff) or not valid.buf(s.buffers.diff) then
       return false
     end
-    if not window_belongs_to_tab(s.windows.diff, s.tab) then
+    if not valid.win_in_tab(s.windows.diff, s.tab) then
       return false
     end
   end
@@ -789,7 +721,7 @@ end
 -- Focus the explorer window
 function M.focus_explorer()
   local s = state.get()
-  if s.windows.explorer and vim.api.nvim_win_is_valid(s.windows.explorer) then
+  if valid.win(s.windows.explorer) then
     vim.api.nvim_set_current_win(s.windows.explorer)
   end
 end
@@ -797,12 +729,12 @@ end
 -- Focus the diff window (in split mode, focus the old/left panel first)
 function M.focus_diff()
   local s = state.get()
-  if is_split_mode() then
-    if s.windows.diff_old and vim.api.nvim_win_is_valid(s.windows.diff_old) then
+  if config.is_split_mode() then
+    if valid.win(s.windows.diff_old) then
       vim.api.nvim_set_current_win(s.windows.diff_old)
     end
   else
-    if s.windows.diff and vim.api.nvim_win_is_valid(s.windows.diff) then
+    if valid.win(s.windows.diff) then
       vim.api.nvim_set_current_win(s.windows.diff)
     end
   end
@@ -811,13 +743,13 @@ end
 -- Focus the new/right diff panel (split mode only)
 function M.focus_diff_new()
   local s = state.get()
-  if s.windows.diff_new and vim.api.nvim_win_is_valid(s.windows.diff_new) then
+  if valid.win(s.windows.diff_new) then
     vim.api.nvim_set_current_win(s.windows.diff_new)
   end
 end
 
 function M.is_split_mode()
-  return is_split_mode()
+  return config.is_split_mode()
 end
 
 -- Check if the current window is the old/left diff panel

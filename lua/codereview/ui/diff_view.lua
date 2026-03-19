@@ -6,39 +6,44 @@ local split_builder = require("codereview.ui.diff_view.split")
 local virtual = require("codereview.notes.virtual")
 local git = require("codereview.git")
 local diff_state = require("codereview.ui.diff_view.state")
-local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
-local diff_old_ns = vim.api.nvim_create_namespace("codereview_diff_old")
+local valid = require("codereview.util.validate")
+local buf_util = require("codereview.util.buf")
+local highlights = require("codereview.ui.diff_view.highlights")
+local diff_keymaps = require("codereview.ui.diff_view.keymaps")
+local diff_ns = highlights.get_diff_ns()
+local diff_old_ns = highlights.get_diff_old_ns()
 local diff_request_id = 0
 local _loading_idx = nil   -- tracks which file idx is currently being loaded
-local treesitter_max_lines = 5000
-local _ts_lang_cache = {}   -- buf -> lang string | false
-local _hl_cache = {}        -- buf -> hash key string
 
--- Clean up caches when a buffer is deleted to prevent stale entries
-vim.api.nvim_create_autocmd("BufDelete", {
-  callback = function(ev)
-    _ts_lang_cache[ev.buf] = nil
-    _hl_cache[ev.buf] = nil
-  end,
-})
-
-local function is_split_mode()
-  return config.options.diff_view == "split"
+-- center placeholder messages in the diff panel instead of hardcoded padding
+local function placeholder_line(msg)
+  local s = state.get()
+  local width
+  if config.is_split_mode() then
+    local win = s.windows.diff_new
+    width = valid.win(win) and vim.api.nvim_win_get_width(win) or 40
+  else
+    local win = s.windows.diff
+    width = valid.win(win) and vim.api.nvim_win_get_width(win) or 40
+  end
+  local pad = math.max(0, math.floor((width - #msg) / 2))
+  return string.rep(" ", pad) .. msg
 end
 
 local function update_diff_title(file)
   if not file then return end
   local s = state.get()
-  if is_split_mode() then
+  if config.is_split_mode() then
     local old_win = s.windows.diff_old
     local new_win = s.windows.diff_new
-    if old_win and vim.api.nvim_win_is_valid(old_win) then
+    local old_title_path = (file.old_path and file.old_path ~= "") and file.old_path or file.path
+    if valid.win(old_win) then
       pcall(vim.api.nvim_win_set_config, old_win, {
-        title = " old: " .. file.path .. " ",
+        title = " old: " .. old_title_path .. " ",
         title_pos = "center",
       })
     end
-    if new_win and vim.api.nvim_win_is_valid(new_win) then
+    if valid.win(new_win) then
       pcall(vim.api.nvim_win_set_config, new_win, {
         title = " new: " .. file.path .. " ",
         title_pos = "center",
@@ -46,7 +51,7 @@ local function update_diff_title(file)
     end
   else
     local win = s.windows.diff
-    if win and vim.api.nvim_win_is_valid(win) then
+    if valid.win(win) then
       pcall(vim.api.nvim_win_set_config, win, {
         title = " " .. file.path .. " ",
         title_pos = "center",
@@ -61,27 +66,24 @@ end
 
 local function reset_display()
   diff_state.reset()
-  if is_split_mode() then
+  if config.is_split_mode() then
     diff_state.reset_old()
   end
 end
 
 local function set_buffer_lines(buf, lines)
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
-  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_set_option_value("modified", false, { buf = buf })
-  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  if not valid.buf(buf) then return end
+  buf_util.set_lines(buf, lines)
 end
 
 local function focus_top(win)
-  if win and vim.api.nvim_win_is_valid(win) then
+  if valid.win(win) then
     vim.api.nvim_win_set_cursor(win, { 1, 0 })
   end
 end
 
 local function set_window_cursor(win, buf, row, col)
-  if not win or not vim.api.nvim_win_is_valid(win) then
+  if not valid.win(win) then
     return
   end
 
@@ -133,7 +135,10 @@ local function build_full_display(parsed)
   local all_line_type_map = {}
   local display_lnum = 1 + header_offset
 
-  for _, hunk in ipairs(parsed.hunks) do
+  for hunk_idx, hunk in ipairs(parsed.hunks) do
+    if hunk_idx > 1 then
+      display_lnum = display_lnum + 1 -- sep line
+    end
     display_lnum = display_lnum + 1
     for _, l in ipairs(hunk.lines) do
       if l.new_lnum then
@@ -172,8 +177,15 @@ local function get_initial_visible_until(all_line_types, max_diff_lines)
   end
 
   local visible_until = max_diff_lines
-  while visible_until > 1 and all_line_types[visible_until] == "hdr" do
+  while visible_until > 1 and (all_line_types[visible_until] == "hdr" or all_line_types[visible_until] == "sep") do
     visible_until = visible_until - 1
+  end
+
+  -- If the backward walk shrunk the window below 50% of the configured limit,
+  -- fall back to the raw max so we always show at least max_diff_lines lines
+  -- rather than silently showing almost nothing when max_diff_lines is small.
+  if visible_until < math.max(1, math.floor(max_diff_lines / 2)) then
+    visible_until = max_diff_lines
   end
 
   return math.max(1, visible_until)
@@ -202,13 +214,13 @@ local function render_current_display(buf, file, opts)
   local win = s.windows.diff
   local cursor = nil
 
-  if opts.preserve_cursor and win and vim.api.nvim_win_is_valid(win) then
+  if opts.preserve_cursor and valid.win(win) then
     cursor = vim.api.nvim_win_get_cursor(win)
   end
 
   set_buffer_lines(buf, display.lines)
-  M._apply_diff_highlights(buf, display.line_types)
-  M._update_treesitter(buf, file and file.path, display.visible_until)
+  highlights.apply_diff_highlights(buf, display.line_types)
+  highlights.update_treesitter(buf, file and file.path, display.visible_until)
 
   if s.notes_visible and file then
     virtual.render_notes(buf, file.path, display)
@@ -218,12 +230,12 @@ local function render_current_display(buf, file, opts)
 
   update_diff_title(file)
 
-  if opts.cursor_lnum and win and vim.api.nvim_win_is_valid(win) then
+  if opts.cursor_lnum and valid.win(win) then
     set_window_cursor(win, buf, opts.cursor_lnum, 0)
     return
   end
 
-  if cursor and win and vim.api.nvim_win_is_valid(win) then
+  if cursor and valid.win(win) then
     set_window_cursor(win, buf, cursor[1], cursor[2])
     return
   end
@@ -244,15 +256,15 @@ local function render_split_display(file, opts)
   local display_new = diff_state.get()
 
   local cursor = nil
-  if opts.preserve_cursor and win_new and vim.api.nvim_win_is_valid(win_new) then
+  if opts.preserve_cursor and valid.win(win_new) then
     cursor = vim.api.nvim_win_get_cursor(win_new)
   end
 
   -- Render old side
-  if buf_old and vim.api.nvim_buf_is_valid(buf_old) then
+  if valid.buf(buf_old) then
     set_buffer_lines(buf_old, display_old.lines)
-    M._apply_diff_highlights(buf_old, display_old.line_types)
-    M._update_treesitter(buf_old, file and file.path, display_old.visible_until)
+    highlights.apply_diff_highlights(buf_old, display_old.line_types)
+    highlights.update_treesitter(buf_old, file and file.path, display_old.visible_until)
     if s.notes_visible and file then
       virtual.render_notes_for_side(buf_old, file.path, display_old, "old")
     else
@@ -261,10 +273,10 @@ local function render_split_display(file, opts)
   end
 
   -- Render new side
-  if buf_new and vim.api.nvim_buf_is_valid(buf_new) then
+  if valid.buf(buf_new) then
     set_buffer_lines(buf_new, display_new.lines)
-    M._apply_diff_highlights(buf_new, display_new.line_types)
-    M._update_treesitter(buf_new, file and file.path, display_new.visible_until)
+    highlights.apply_diff_highlights(buf_new, display_new.line_types)
+    highlights.update_treesitter(buf_new, file and file.path, display_new.visible_until)
     if s.notes_visible and file then
       virtual.render_notes_for_side(buf_new, file.path, display_new, "new")
     else
@@ -277,12 +289,12 @@ local function render_split_display(file, opts)
   -- Sync scroll
   pcall(vim.cmd, "syncbind")
 
-  if opts.cursor_lnum and win_new and vim.api.nvim_win_is_valid(win_new) then
+  if opts.cursor_lnum and valid.win(win_new) then
     set_window_cursor(win_new, buf_new, opts.cursor_lnum, 0)
     return
   end
 
-  if cursor and win_new and vim.api.nvim_win_is_valid(win_new) then
+  if cursor and valid.win(win_new) then
     set_window_cursor(win_new, buf_new, cursor[1], cursor[2])
     return
   end
@@ -304,18 +316,17 @@ local function set_visible_until(visible_until, opts)
     return false
   end
 
-  if is_split_mode() then
+  if config.is_split_mode() then
     local buf_old = s.buffers.diff_old
     local buf_new = s.buffers.diff_new
-    if (not buf_old or not vim.api.nvim_buf_is_valid(buf_old))
-      and (not buf_new or not vim.api.nvim_buf_is_valid(buf_new)) then
+    if not valid.buf(buf_old) and not valid.buf(buf_new) then
       return false
     end
     diff_state.set_visible_until_both(clamped_visible_until)
     render_split_display(file, opts)
   else
     local buf = s.buffers.diff
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then return false end
+    if not valid.buf(buf) then return false end
     diff_state.set_visible_until(clamped_visible_until)
     render_current_display(buf, file, opts)
   end
@@ -344,33 +355,33 @@ function M.show_file(idx)
 
   -- Determine primary buffer for validation
   local primary_buf
-  if is_split_mode() then
+  if config.is_split_mode() then
     primary_buf = s.buffers.diff_new
   else
     primary_buf = s.buffers.diff
   end
 
-  if not file or not primary_buf or not vim.api.nvim_buf_is_valid(primary_buf) then return end
+  if not file or not valid.buf(primary_buf) then return end
 
   -- Prevent re-triggering a load that is already in progress for this file
   if _loading_idx == idx then return end
 
   -- Helper to get the primary focus window
   local function get_focus_win()
-    if is_split_mode() then return s.windows.diff_new end
+    if config.is_split_mode() then return s.windows.diff_new end
     return s.windows.diff
   end
 
   -- Helper to set placeholder on all diff buffers
   local function set_placeholder(lines)
-    if is_split_mode() then
+    if config.is_split_mode() then
       local buf_old = s.buffers.diff_old
       local buf_new = s.buffers.diff_new
-      if buf_old and vim.api.nvim_buf_is_valid(buf_old) then
+      if valid.buf(buf_old) then
         virtual.clear_extmarks(buf_old)
         set_buffer_lines(buf_old, lines)
       end
-      if buf_new and vim.api.nvim_buf_is_valid(buf_new) then
+      if valid.buf(buf_new) then
         virtual.clear_extmarks(buf_new)
         set_buffer_lines(buf_new, lines)
       end
@@ -386,7 +397,7 @@ function M.show_file(idx)
     s.current_file_idx = idx
     diff_request_id = diff_request_id + 1
     reset_display()
-    set_placeholder({ "  (binary file -- diff not available)" })
+    set_placeholder({ placeholder_line("(binary file -- diff not available)") })
     update_diff_title(file)
     focus_top(get_focus_win())
     return
@@ -397,11 +408,27 @@ function M.show_file(idx)
   diff_request_id = diff_request_id + 1
   local request_id = diff_request_id
 
+  -- Stop treesitter on all diff buffers before replacing content to prevent
+  -- stale treesitter callbacks from the previous file (D10 race condition).
+  if config.is_split_mode() then
+    if s.buffers.diff_old then
+      pcall(vim.treesitter.stop, s.buffers.diff_old)
+      highlights.invalidate_buf(s.buffers.diff_old)
+    end
+    if s.buffers.diff_new then
+      pcall(vim.treesitter.stop, s.buffers.diff_new)
+      highlights.invalidate_buf(s.buffers.diff_new)
+    end
+  else
+    pcall(vim.treesitter.stop, primary_buf)
+    highlights.invalidate_buf(primary_buf)
+  end
+
   reset_display()
-  set_placeholder({ "  (loading diff...)" })
-  _hl_cache[primary_buf] = nil
-  if is_split_mode() and s.buffers.diff_old then
-    _hl_cache[s.buffers.diff_old] = nil
+  set_placeholder({ placeholder_line("(loading diff...)") })
+  highlights.invalidate_buf(primary_buf)
+  if config.is_split_mode() and s.buffers.diff_old then
+    highlights.invalidate_buf(s.buffers.diff_old)
   end
   update_diff_title(file)
   focus_top(get_focus_win())
@@ -409,20 +436,20 @@ function M.show_file(idx)
   M._get_diff_for_file(file, function(diff_text)
     if request_id ~= diff_request_id then return end
     _loading_idx = nil
-    if not primary_buf or not vim.api.nvim_buf_is_valid(primary_buf) then return end
+    if not valid.buf(primary_buf) then return end
 
     local current_state = state.get()
 
     if diff_text == nil then
       reset_display()
-      set_placeholder({ "  (failed to load diff)" })
+      set_placeholder({ placeholder_line("(failed to load diff)") })
       focus_top(get_focus_win())
       return
     end
 
     if diff_text == "" then
       reset_display()
-      set_placeholder({ "  (no changes)" })
+      set_placeholder({ placeholder_line("(no changes)") })
       focus_top(get_focus_win())
       return
     end
@@ -431,7 +458,7 @@ function M.show_file(idx)
     local limits = get_diff_limits()
     local truncation_line = get_truncation_line()
 
-    if is_split_mode() then
+    if config.is_split_mode() then
       local split_display = split_builder.build_split_display(parsed)
       local visible_until = get_initial_visible_until(split_display.new.all_line_types, limits.max_diff_lines)
 
@@ -496,85 +523,20 @@ function M._get_diff_for_file(file, callback)
   end
 end
 
-function M._update_treesitter(buf, filepath, visible_until)
-  local desired_lang = nil
-  if filepath and visible_until > 0 and visible_until <= treesitter_max_lines then
-    local ext = filepath:match("%.([^%.]+)$")
-    if ext then
-      local ok, lang = pcall(vim.treesitter.language.get_lang, ext)
-      if ok and lang then desired_lang = lang end
-    end
-  end
-
-  local cached = _ts_lang_cache[buf]
-
-  if desired_lang == nil then
-    if cached ~= false and cached ~= nil then
-      pcall(vim.treesitter.stop, buf)
-      _ts_lang_cache[buf] = false
-    end
-    return
-  end
-
-  if cached ~= desired_lang then
-    if cached ~= false and cached ~= nil then
-      pcall(vim.treesitter.stop, buf)
-    end
-    pcall(vim.treesitter.start, buf, desired_lang)
-    _ts_lang_cache[buf] = desired_lang
-  end
-end
-
-local function _hash_line_types(line_types)
-  local h = 0
-  for i, ltype in ipairs(line_types) do
-    -- djb2-style hash: combine index and first byte of type string
-    h = ((h * 33) + i + (ltype:byte(1) or 0)) % 0x7FFFFFFF
-  end
-  return #line_types .. ":" .. h
-end
-
-function M._apply_diff_highlights(buf, line_types)
-  local new_key = _hash_line_types(line_types)
-  if _hl_cache[buf] == new_key then return end
-
-  vim.api.nvim_buf_clear_namespace(buf, diff_ns, 0, -1)
-
-  vim.api.nvim_set_hl(0, "CodeReviewFileHdr", { link = "Label", default = true })
-  vim.api.nvim_set_hl(0, "CodeReviewInfo", { link = "Comment", default = true })
-  vim.api.nvim_set_hl(0, "CodeReviewPad", { link = "NonText", default = true })
-
-  for lnum, ltype in ipairs(line_types) do
-    local hl
-    if ltype == "add" then
-      hl = "DiffAdd"
-    elseif ltype == "del" then
-      hl = "DiffDelete"
-    elseif ltype == "hdr" then
-      hl = "DiffChange"
-    elseif ltype == "file_hdr" then
-      hl = "CodeReviewFileHdr"
-    elseif ltype == "pad" then
-      hl = "CodeReviewPad"
-    elseif ltype == "info" or ltype == "truncated" then
-      hl = "CodeReviewInfo"
-    end
-    if hl then
-      vim.api.nvim_buf_add_highlight(buf, diff_ns, hl, lnum - 1, 0, -1)
-    end
-  end
-
-  _hl_cache[buf] = new_key
-end
-
 function M.load_more()
   local display = diff_state.get()
   if not display.is_truncated then
     -- In split mode, also check old side
-    if is_split_mode() then
+    if config.is_split_mode() then
       local display_old = diff_state.get_old()
-      if not display_old.is_truncated then return end
+      if not display_old.is_truncated then
+        -- notify user that diff is fully loaded
+        vim.api.nvim_echo({ { "CodeReview: diff fully loaded", "Comment" } }, false, {})
+        return
+      end
     else
+      -- notify user that diff is fully loaded
+      vim.api.nvim_echo({ { "CodeReview: diff fully loaded", "Comment" } }, false, {})
       return
     end
   end
@@ -587,9 +549,9 @@ end
 function M.jump_to_line(new_lnum)
   local s = state.get()
   local display = diff_state.get()
-  local jump_win = is_split_mode() and s.windows.diff_new or s.windows.diff
+  local jump_win = config.is_split_mode() and s.windows.diff_new or s.windows.diff
 
-  if not jump_win or not vim.api.nvim_win_is_valid(jump_win) then
+  if not valid.win(jump_win) then
     diff_state.set_pending_jump(new_lnum)
     return
   end
@@ -599,6 +561,9 @@ function M.jump_to_line(new_lnum)
     return
   end
 
+  -- D08 fix: use all_new_to_display to find the target and expand pagination,
+  -- then re-read display and use new_to_display consistently for the final
+  -- cursor position.  This avoids inconsistencies between the two maps.
   local target_display = display.all_new_to_display[new_lnum] or find_best_display_line(display.all_new_to_display, new_lnum)
   if not target_display then
     diff_state.set_pending_jump(nil)
@@ -607,9 +572,13 @@ function M.jump_to_line(new_lnum)
 
   ensure_display_line_visible(target_display, { preserve_cursor = true })
 
+  -- Re-read after potential pagination expansion
   display = diff_state.get()
+  -- Use new_to_display (visible subset) for final position; fall back to
+  -- all_new_to_display clamped to visible range for robustness.
   local best_line = display.new_to_display[new_lnum] or find_best_display_line(display.new_to_display, new_lnum)
   if not best_line then
+    -- Fallback: clamp the all_ target to visible line count
     best_line = math.min(target_display, math.max(1, #display.lines))
   end
 
@@ -620,7 +589,7 @@ end
 -- Get the new_lnum for the current cursor position in diff view
 function M.get_current_lnum()
   local s = state.get()
-  if is_split_mode() then
+  if config.is_split_mode() then
     -- In split mode, check which window has focus
     local current_win = vim.api.nvim_get_current_win()
     if current_win == s.windows.diff_new then
@@ -636,36 +605,29 @@ function M.get_current_lnum()
   end
 
   local display = diff_state.get()
-  if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then
+  if not valid.win(s.windows.diff) then
     return nil
   end
   local cursor = vim.api.nvim_win_get_cursor(s.windows.diff)
   return display.line_map[cursor[1]]
 end
 
--- Extract code context from a line_map (shared by new and old side)
+-- extract code context by iterating over all_lines sequentially instead
+-- of using pairs() on line_map (non-deterministic order, unnecessary sort).
 local function _extract_code_context(line_start, line_end, line_map, all_lines)
-  local result = {}
   line_end = line_end or line_start
 
-  for display_lnum, lnum in pairs(line_map) do
-    if lnum >= line_start and lnum <= line_end then
-      result[display_lnum] = all_lines[display_lnum]
-    end
-  end
-
-  local keys = {}
-  for k in pairs(result) do table.insert(keys, k) end
-  table.sort(keys)
-
   local code_lines = {}
-  for _, k in ipairs(keys) do
-    local line = result[k]
-    local ltype = get_line_type(line)
-    if ltype == "+" or ltype == "-" or ltype == " " then
-      line = line:sub(2)
+  for display_lnum = 1, #all_lines do
+    local lnum = line_map[display_lnum]
+    if lnum and lnum >= line_start and lnum <= line_end then
+      local line = all_lines[display_lnum]
+      local ltype = get_line_type(line)
+      if ltype == "+" or ltype == "-" or ltype == " " then
+        line = line:sub(2)
+      end
+      table.insert(code_lines, line)
     end
-    table.insert(code_lines, line)
   end
 
   return table.concat(code_lines, "\n")
@@ -687,7 +649,7 @@ end
 function M.get_current_line_info()
   local s = state.get()
 
-  if is_split_mode() then
+  if config.is_split_mode() then
     local current_win = vim.api.nvim_get_current_win()
     if current_win == s.windows.diff_new then
       local display = diff_state.get()
@@ -705,7 +667,8 @@ function M.get_current_line_info()
       local lnum = display_old.line_map[display_lnum]
       if lnum then
         local ltype = display_old.line_type_map[display_lnum] or "ctx"
-        local side = (ltype == "del") and "old" or "old"
+        -- old-side panel always reports side="old" regardless of line type
+        local side = "old"
         return { lnum = lnum, side = side, type = ltype }
       end
       return nil
@@ -714,7 +677,7 @@ function M.get_current_line_info()
   end
 
   local display = diff_state.get()
-  if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then
+  if not valid.win(s.windows.diff) then
     return nil
   end
 
@@ -743,7 +706,7 @@ end
 -- Dispatch to the right code context getter based on side
 function M.get_code_context_for_side(line_start, line_end, side)
   if side == "old" then
-    if is_split_mode() then
+    if config.is_split_mode() then
       return M.get_code_context_old_split(line_start, line_end)
     end
     return M.get_code_context_old(line_start, line_end)
@@ -755,11 +718,11 @@ end
 function M.jump_to_old_line(old_lnum)
   local s = state.get()
 
-  if is_split_mode() then
+  if config.is_split_mode() then
     -- In split mode, old lines are in the old-side display
     local display_old = diff_state.get_old()
     local jump_win = s.windows.diff_old
-    if not jump_win or not vim.api.nvim_win_is_valid(jump_win) then return end
+    if not valid.win(jump_win) then return end
     if #display_old.all_lines == 0 then return end
 
     local target = display_old.all_old_to_display[old_lnum]
@@ -778,7 +741,7 @@ function M.jump_to_old_line(old_lnum)
   end
 
   local display = diff_state.get()
-  if not s.windows.diff or not vim.api.nvim_win_is_valid(s.windows.diff) then return end
+  if not valid.win(s.windows.diff) then return end
   if #display.all_lines == 0 then return end
 
   local target_display = display.all_old_to_display[old_lnum] or find_best_display_line(display.all_old_to_display, old_lnum)
@@ -812,7 +775,37 @@ function M._open_file_in_tab(jump_to_line)
 
   local full_path = s.root .. "/" .. file.path
   if vim.fn.filereadable(full_path) ~= 1 then
-    vim.notify("codereview: file not found: " .. file.path, vim.log.levels.WARN)
+    -- for deleted files, offer to view the version from the commit
+    if file.status == "D" then
+      local ref = s.diff_args and s.diff_args[1] or "HEAD"
+      local cmd = "git show " .. ref .. ":" .. file.path
+      vim.api.nvim_echo(
+        { { "CodeReview: file deleted on disk. Opening from " .. ref .. "…", "WarningMsg" } },
+        false, {}
+      )
+      vim.cmd("tabnew")
+      local buf = vim.api.nvim_get_current_buf()
+      vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
+      vim.api.nvim_buf_set_name(buf, file.path .. " (" .. ref .. ")")
+      local output = vim.fn.systemlist(cmd)
+      if vim.v.shell_error == 0 then
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, output)
+        -- Try to set filetype from extension
+        local ext = file.path:match("%.([^%.]+)$")
+        if ext then
+          local ft = vim.filetype.match({ filename = file.path }) or ext
+          pcall(vim.api.nvim_set_option_value, "filetype", ft, { buf = buf })
+        end
+      else
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Failed to load file from " .. ref })
+      end
+      vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+      return
+    end
+    vim.api.nvim_echo(
+      { { "CodeReview: file not found: " .. file.path, "WarningMsg" } },
+      false, {}
+    )
     return
   end
 
@@ -890,13 +883,13 @@ function M._toggle_hunk_fold()
 
   if not current_hdr then return end
 
-  if is_split_mode() then
+  if config.is_split_mode() then
     diff_state.toggle_hunk_fold_both(current_hdr)
     render_split_display(file, { preserve_cursor = true })
   else
     diff_state.toggle_hunk_fold(current_hdr)
     local buf = s.buffers.diff
-    if buf and vim.api.nvim_buf_is_valid(buf) then
+    if valid.buf(buf) then
       render_current_display(buf, file, { preserve_cursor = true })
     end
   end
@@ -904,144 +897,7 @@ end
 
 -- Setup keymaps for the diff buffer
 function M.setup_keymaps(buf)
-  local cfg = config.options
-  local km = cfg.keymaps
-  local opts = { noremap = true, silent = true, nowait = true, buffer = buf }
-
-  vim.keymap.set("n", km.note, function()
-    local info = M.get_current_line_info()
-    if not info then return end
-    local s = state.get()
-    local file = s.files[s.current_file_idx]
-    if not file then return end
-    local existing = require("codereview.notes.store").get(file.path, info.lnum, info.side)
-    local code = M.get_code_context_for_side(info.lnum, info.lnum, info.side)
-    require("codereview.ui.note_float").open(file.path, info.lnum, info.lnum, code, existing and existing.text, info.side)
-  end, opts)
-
-  vim.keymap.set("v", km.note, function()
-    local vstart = vim.fn.line("v")
-    local vend = vim.fn.line(".")
-    if vstart > vend then vstart, vend = vend, vstart end
-
-    local s = state.get()
-    local file = s.files[s.current_file_idx]
-    if not file then return end
-
-    local side, lnum_start, lnum_end
-
-    if is_split_mode() then
-      local current_win = vim.api.nvim_get_current_win()
-      if current_win == s.windows.diff_old then
-        side = "old"
-        local display_old = diff_state.get_old()
-        lnum_start = display_old.line_map[vstart]
-        lnum_end = display_old.line_map[vend]
-      else
-        side = "new"
-        local display = diff_state.get()
-        lnum_start = display.line_map[vstart]
-        lnum_end = display.line_map[vend]
-      end
-    else
-      local display = diff_state.get()
-      local first_type = display.line_type_map[vstart]
-      side = (first_type == "del") and "old" or "new"
-      if side == "old" then
-        lnum_start = display.old_line_map[vstart]
-        lnum_end = display.old_line_map[vend]
-      else
-        lnum_start = display.line_map[vstart]
-        lnum_end = display.line_map[vend]
-      end
-    end
-
-    if not lnum_start then return end
-    lnum_end = lnum_end or lnum_start
-
-    local code = M.get_code_context_for_side(lnum_start, lnum_end, side)
-    require("codereview.ui.note_float").open(file.path, lnum_start, lnum_end, code, nil, side)
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
-  end, opts)
-
-  vim.keymap.set("n", km.next_note, function()
-    M._jump_note(1)
-  end, opts)
-  vim.keymap.set("n", km.prev_note, function()
-    M._jump_note(-1)
-  end, opts)
-
-  local layout = require("codereview.ui.layout")
-  local explorer = require("codereview.ui.explorer")
-  vim.keymap.set("n", km.next_file, function()
-    local s = state.get()
-    if s.current_file_idx < #s.files then
-      explorer.preview_action({ type = "file", idx = s.current_file_idx + 1 }, { move_cursor = true })
-    end
-  end, opts)
-  vim.keymap.set("n", km.prev_file, function()
-    local s = state.get()
-    if s.current_file_idx > 1 then
-      explorer.preview_action({ type = "file", idx = s.current_file_idx - 1 }, { move_cursor = true })
-    end
-  end, opts)
-
-  if km.save then
-    vim.keymap.set("n", km.save, function()
-      require("codereview.review.exporter").save_with_prompt()
-    end, opts)
-  end
-
-  vim.keymap.set("n", km.notes_picker, function()
-    require("codereview.telescope").open_notes_picker()
-  end, opts)
-
-  vim.keymap.set("n", km.toggle_virtual_text, function()
-    local s = state.get()
-    local file = s.files[s.current_file_idx]
-    if not file then return end
-    if is_split_mode() then
-      virtual.toggle_split(s.buffers.diff_old, s.buffers.diff_new, file.path, diff_state.get_old(), diff_state.get())
-    else
-      virtual.toggle(s.buffers.diff, file.path, diff_state.get())
-    end
-  end, opts)
-
-  vim.keymap.set("n", km.load_more_diff, function()
-    M.load_more()
-  end, opts)
-
-  vim.keymap.set("n", km.go_to_file, function()
-    M._open_file_in_tab(true)
-  end, opts)
-
-  vim.keymap.set("n", km.view_file, function()
-    M._open_file_in_tab(false)
-  end, opts)
-
-  vim.keymap.set("n", km.toggle_hunk_fold, function()
-    M._toggle_hunk_fold()
-  end, opts)
-
-  vim.keymap.set("n", km.cycle_focus, function()
-    if layout.is_split_mode() and layout.is_diff_old_focused() then
-      layout.focus_diff_new()
-    else
-      layout.focus_explorer()
-    end
-  end, opts)
-
-  vim.keymap.set("n", km.quit, function()
-    local note_float = require("codereview.ui.note_float")
-    if note_float.is_open() then
-      note_float.ask_save_or_discard()
-      return
-    end
-    layout.safe_close(false)
-  end, opts)
-
-  layout.setup_quit_handlers(buf)
-  layout.setup_write_handlers(buf)
+  diff_keymaps.setup(buf, M)
 end
 
 local function get_note_display_pos(note, display)
@@ -1061,10 +917,22 @@ function M._jump_note(direction)
   local display = diff_state.get()
   local notes = store.get_for_file(file.path)
 
-  -- Get current display position for comparison
+  -- Get current display position for comparison.
+  -- In split mode, use the actual current window so next/prev note works
+  -- correctly regardless of which panel (old/new) has focus (D11 fix).
   local current_display_pos = 0
-  local active_win = is_split_mode() and s.windows.diff_new or s.windows.diff
-  if active_win and vim.api.nvim_win_is_valid(active_win) then
+  local active_win
+  if config.is_split_mode() then
+    local cur = vim.api.nvim_get_current_win()
+    if cur == s.windows.diff_old or cur == s.windows.diff_new then
+      active_win = cur
+    else
+      active_win = s.windows.diff_new
+    end
+  else
+    active_win = s.windows.diff
+  end
+  if valid.win(active_win) then
     current_display_pos = vim.api.nvim_win_get_cursor(active_win)[1]
   end
 
@@ -1133,13 +1001,12 @@ function M.clear()
   diff_request_id = diff_request_id + 1
   _loading_idx = nil
   reset_display()
-  _ts_lang_cache = {}
-  _hl_cache = {}
+  highlights.clear_caches()
 end
 
 -- Check if we're in split mode (exposed for other modules)
 function M.is_split_mode()
-  return is_split_mode()
+  return config.is_split_mode()
 end
 
 -- Refresh notes display
@@ -1148,7 +1015,7 @@ function M.refresh_notes()
   local file = s.files[s.current_file_idx]
   if not file then return end
 
-  if is_split_mode() then
+  if config.is_split_mode() then
     local buf_old = s.buffers.diff_old
     local buf_new = s.buffers.diff_new
     if s.notes_visible then

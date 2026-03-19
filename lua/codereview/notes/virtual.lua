@@ -3,6 +3,7 @@ local state = require("codereview.state")
 local store = require("codereview.notes.store")
 local config = require("codereview.config")
 local diff_state = require("codereview.ui.diff_view.state")
+local valid = require("codereview.util.validate")
 
 -- Namespace for extmarks
 local ns_id = vim.api.nvim_create_namespace("codereview_notes")
@@ -33,47 +34,74 @@ end
 
 -- Set extmark for a note on a specific buffer line (0-indexed)
 function M.set_extmark(buf, lnum, note, extmark_id)
-  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+  if not valid.buf(buf) then return nil end
 
-  local text = note.text or ""
-  local tlen = config.options.virtual_text_truncate_len
-  if #text > tlen then
-    text = text:sub(1, tlen - 3) .. "..."
-  end
-  -- Remove newlines from virtual text display
-  text = text:gsub("\n", " ")
-
+  local full_text = note.text or ""
   local is_old = (note.side or "new") == "old"
   local prefix = is_old and "  ~ [deleted] " or "  ~ "
   local hl = is_old and "DiagnosticInfo" or "Comment"
-  local virt_text = { { prefix .. text, hl } }
 
+  local text_lines = vim.split(full_text, "\n", { plain = true })
+  local max_extra = config.options.virtual_text_max_lines or 0
+
+  local tlen = config.options.virtual_text_truncate_len
+  local first_line = text_lines[1] or ""
+  local has_more = #text_lines > 1 or #first_line > tlen
+
+  -- Multiline mode: all lines shown below the code line using virt_lines
+  -- Single-line mode (max_extra == 0): first line shown as eol virtual text
   local opts = {
-    virt_text = virt_text,
     virt_text_pos = "eol",
     hl_mode = "combine",
     id = extmark_id,
   }
+
+  if max_extra > 0 and #text_lines > 1 then
+    -- Multiline: eol marker + all lines below
+    opts.virt_text = { { prefix .. "✎", hl } }
+    local virt_lines = {}
+    local line_prefix = "  ~ "
+    local total_to_show = math.min(#text_lines, max_extra + 1)
+    for i = 1, total_to_show do
+      local line = text_lines[i] or ""
+      if #line > tlen then
+        line = line:sub(1, tlen - 3) .. "..."
+      end
+      table.insert(virt_lines, { { line_prefix .. line, hl } })
+    end
+    if #text_lines > max_extra + 1 then
+      local omitted = #text_lines - max_extra - 1
+      table.insert(virt_lines, { { line_prefix .. "(+" .. omitted .. " more)", hl } })
+    end
+    opts.virt_lines = virt_lines
+  else
+    -- Single-line: truncated eol text
+    if #first_line > tlen then
+      first_line = first_line:sub(1, tlen - 3) .. "..."
+    end
+    local eol_suffix = has_more and " [...]" or ""
+    opts.virt_text = { { prefix .. first_line .. eol_suffix, hl } }
+  end
 
   return set_buf_extmark(buf, lnum, opts)
 end
 
 -- Remove extmark for a note
 function M.del_extmark(buf, extmark_id)
-  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
   pcall(vim.api.nvim_buf_del_extmark, buf, ns_id, extmark_id)
 end
 
 -- Clear all extmarks from a buffer
 function M.clear_extmarks(buf)
   diff_state.clear_visible_extmarks(buf)
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
   vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 end
 
 -- display: diff view state with visible new_to_display and old_to_display mappings
 function M.render_notes(buf, filepath, display)
-  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
 
   display = display or {}
   local new_to_display = display.new_to_display or {}
@@ -124,7 +152,7 @@ end
 -- Render notes filtered by side (for split diff mode)
 -- Only renders notes whose side matches the given filter_side
 function M.render_notes_for_side(buf, filepath, display, filter_side)
-  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
 
   display = display or {}
   -- In split mode, the display's line_map maps to the side's own lnums

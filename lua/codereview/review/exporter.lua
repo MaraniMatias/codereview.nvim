@@ -2,6 +2,7 @@ local M = {}
 local state = require("codereview.state")
 local store = require("codereview.notes.store")
 local config = require("codereview.config")
+local prompt = require("codereview.util.prompt")
 
 local function read_lines(abs_path, first, last)
 	local f = io.open(abs_path, "r")
@@ -29,8 +30,113 @@ local function read_lines(abs_path, first, last)
 	return table.concat(slice, "\n")
 end
 
--- Generate the markdown review content
-function M.generate()
+-- Helper: resolve the first line of code for a note (used by inline/compact formats)
+local function first_code_line(note, root)
+	local side = note.side or "new"
+	if side == "old" then
+		return nil
+	end
+	local line = note.code
+	if line and line ~= "" then
+		-- note.code may be a multi-line block; take only the first line
+		line = line:match("([^\n]+)") or line
+	else
+		line = read_lines(root .. "/" .. note.filepath, note.line_start, note.line_start)
+	end
+	if line then
+		line = vim.trim(line)
+	end
+	return (line ~= "") and line or nil
+end
+
+-- Format: one entry per note, ref + inline code on one line, note text below
+--
+-- src/foo.js:0 `const result = a + b;`
+-- revisit this calculation
+--
+-- handlers/user.js:67 `function handleUser(user) {`
+-- null check `user` before `.name`
+-- add logging for failed cases
+local function generate_inline()
+	local date = os.date("%Y-%m-%d")
+	local lines = {}
+
+	table.insert(lines, "# Review " .. date)
+	table.insert(lines, "")
+
+	local all_notes = store.get_all()
+
+	if #all_notes == 0 then
+		table.insert(lines, "_Write your notes here._")
+		table.insert(lines, "")
+	else
+		local root = state.get().root or vim.fn.getcwd()
+
+		for _, note in ipairs(all_notes) do
+			local side = note.side or "new"
+			local side_suffix = side == "old" and " (deleted)" or ""
+			local ref = note.filepath .. side_suffix .. ":" .. note.line_start
+			local code = first_code_line(note, root)
+
+			if code then
+				table.insert(lines, ref .. " `" .. code .. "`")
+			else
+				table.insert(lines, ref)
+			end
+
+			if note.text and note.text ~= "" then
+				for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
+					table.insert(lines, text_line)
+				end
+			end
+
+			table.insert(lines, "")
+		end
+	end
+
+	return table.concat(lines, "\n")
+end
+
+-- Format: one line per note — ref range — note text (newlines collapsed, no code)
+--
+-- src/foo.js:0-1 — revisit this calculation
+-- handlers/user.js:67-72 — add null check for `user` before accessing `.name`
+local function generate_compact()
+	local date = os.date("%Y-%m-%d")
+	local lines = {}
+
+	table.insert(lines, "# Review " .. date)
+	table.insert(lines, "")
+
+	local all_notes = store.get_all()
+
+	if #all_notes == 0 then
+		table.insert(lines, "_Write your notes here._")
+		table.insert(lines, "")
+	else
+		for _, note in ipairs(all_notes) do
+			local side = note.side or "new"
+			local side_suffix = side == "old" and " (deleted)" or ""
+			local range = note.line_start .. "-" .. note.line_end
+			local ref = note.filepath .. side_suffix .. ":" .. range
+
+			local entry = ref
+			if note.text and note.text ~= "" then
+				local one_line = vim.trim(note.text:gsub("\n+", " "))
+				entry = entry .. " - " .. one_line
+			end
+
+			table.insert(lines, entry)
+		end
+
+		table.insert(lines, "")
+	end
+
+	return table.concat(lines, "\n")
+end
+
+-- Format: full code block per note (original behaviour)
+local function generate_block()
 	local date = os.date("%Y-%m-%d")
 	local lines = {}
 	local ctx = (config.options.review and config.options.review.context_lines) or 0
@@ -60,7 +166,7 @@ function M.generate()
 			end
 
 			if code and code ~= "" then
-				table.insert(lines, "```text {" .. note.line_start .. "," .. note.line_end .. "}")
+				table.insert(lines, "```text{" .. note.line_start .. "," .. note.line_end .. "}")
 				for code_line in (code .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, code_line)
 				end
@@ -80,6 +186,18 @@ function M.generate()
 	end
 
 	return table.concat(lines, "\n")
+end
+
+-- Generate the markdown review content (dispatch by export_format)
+function M.generate()
+	local fmt = (config.options.review and config.options.review.export_format) or "inline"
+	if fmt == "compact" then
+		return generate_compact()
+	elseif fmt == "block" then
+		return generate_block()
+	else
+		return generate_inline()
+	end
 end
 
 -- Save to a file
@@ -185,31 +303,30 @@ function M._prompt_filename(save_dir, default_name, on_save)
 		if vim.fn.filereadable(full_path) == 1 then
 			-- File already exists: offer Overwrite / Rename / Cancel
 			vim.schedule(function()
-				vim.ui.select(
-					{ "Overwrite", "Rename", "Cancel" },
-					{ prompt = '"' .. filename .. '" already exists:' },
-					function(choice)
-						if choice == "Overwrite" then
-							local ok = M.save(full_path)
-							if ok then
-								vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
-							end
-							if on_save then
-								on_save(ok)
-							end
-						elseif choice == "Rename" then
-							-- Loop back with current name as new default
-							vim.schedule(function()
-								M._prompt_filename(save_dir, filename, on_save)
-							end)
-						else
-							vim.notify("Save cancelled", vim.log.levels.INFO)
-							if on_save then
-								on_save(false)
-							end
-						end
+				local choice = prompt.choose('"' .. filename .. '" already exists:', {
+					{ key = "o", label = "overwrite", value = "overwrite" },
+					{ key = "r", label = "rename", value = "rename" },
+					{ key = "c", label = "cancel", value = "cancel" },
+				})
+				if choice == "overwrite" then
+					local ok = M.save(full_path)
+					if ok then
+						vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
 					end
-				)
+					if on_save then
+						on_save(ok)
+					end
+				elseif choice == "rename" then
+					-- Loop back with current name as new default
+					vim.schedule(function()
+						M._prompt_filename(save_dir, filename, on_save)
+					end)
+				else
+					vim.notify("Save cancelled", vim.log.levels.INFO)
+					if on_save then
+						on_save(false)
+					end
+				end
 			end)
 		else
 			local ok = M.save(full_path)
@@ -236,20 +353,14 @@ function M.save_with_prompt(on_save)
 	vim.schedule(function()
 		if #all_notes == 0 then
 			-- Warn the user that there are no notes before saving
-			vim.ui.select(
-				{ "Save anyway", "Cancel" },
-				{ prompt = "No notes written yet — save empty review?" },
-				function(choice)
-					if choice == "Save anyway" then
-						M._prompt_filename(save_dir, default_name, on_save)
-					else
-						vim.notify("Save cancelled", vim.log.levels.INFO)
-						if on_save then
-							on_save(false)
-						end
-					end
+			if prompt.confirm("No notes written yet — save empty review?") then
+				M._prompt_filename(save_dir, default_name, on_save)
+			else
+				vim.notify("Save cancelled", vim.log.levels.INFO)
+				if on_save then
+					on_save(false)
 				end
-			)
+			end
 		else
 			M._prompt_filename(save_dir, default_name, on_save)
 		end

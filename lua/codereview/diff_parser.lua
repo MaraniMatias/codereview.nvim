@@ -88,7 +88,11 @@ function M.get_display_lines(parsed)
     table.insert(line_types, "info")
   end
 
-  for _, hunk in ipairs(parsed.hunks) do
+  for hunk_idx, hunk in ipairs(parsed.hunks) do
+    if hunk_idx > 1 then
+      table.insert(lines, "")
+      table.insert(line_types, "sep")
+    end
     table.insert(lines, hunk.header)
     table.insert(line_types, "hdr")
     for _, l in ipairs(hunk.lines) do

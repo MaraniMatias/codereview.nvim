@@ -13,20 +13,44 @@ Inline code review on any `git diff`, right inside Neovim and export to markdown
 
 **Inline notes** — Smart add/edit on any diff line, visual-selection notes with captured code context, virtual text with visibility toggle, Telescope picker for all notes.
 
-**Navigation** — File explorer with badges and note counts, `]n`/`[n` and `]f`/`[f` bracket motions, `?` help window with all keymaps.
+**Navigation** — File explorer with badges and note counts, `]n`/`[n` and `]f`/`[f` bracket motions, `?` help window with all keymaps. Two explorer layouts: **flat** (filename first, directory dimmed) and **tree** (files grouped by directory), toggled with `t`.
 
 **Safety** — Unsaved-note protection on close, large diff pagination with configurable thresholds.
 
 ### Export Format
 
-Running `:w` or `:W` generates a Markdown file with each note grouped under its file path, including the relevant code context:
+Running `:w` or `:W` generates a Markdown file. Three formats are available via `review.export_format`:
+
+**`"inline"` (default)** — ref + first line of code, note text below:
+
+```markdown
+# Review 2026-03-14
+
+src/foo.js:0 `const result = a + b;`
+revisit this calculation
+
+handlers/user.js:67 `function handleUser(user) {`
+null check `user` before `.name`
+add logging for failed cases
+```
+
+**`"compact"`** — one line per note, no code:
+
+```markdown
+# Review 2026-03-14
+
+src/foo.js:0-1 - revisit this calculation
+handlers/user.js:67-72 - add null check for `user` before accessing `.name`
+```
+
+**`"block"`** — full code block per note:
 
 ````markdown
 # Review 2026-03-14
 
 `src/foo.js`
 
-```text {0,1}
+```text{0,1}
 const result = a + b;
 ```
 
@@ -34,7 +58,7 @@ revisit this calculation
 
 `handlers/user.js`
 
-```text {67,72}
+```text{67,72}
 function handleUser(user) {
   if (user.name) {
     return user.name;
@@ -140,9 +164,9 @@ All keybindings are remappable via `keymaps` in your setup config.
 | ------------- | ---------------------------------------------- |
 | `j` / `k`     | Navigate files and note entries                |
 | `Enter` / `l` | Focus the diff panel for the selected item     |
-| `h`           | Toggle notes for the selected file             |
 | `za`          | Expand or collapse notes for the selected file |
 | `]f` / `[f`   | Next or previous file                          |
+| `t`           | Toggle flat / tree layout                      |
 | `R`           | Refresh file list                              |
 | `<Tab>`       | Focus diff panel                               |
 | `?`           | Show help window                               |
@@ -167,11 +191,12 @@ All keybindings are remappable via `keymaps` in your setup config.
 
 ### Note Editor
 
-| Key     | Action                      |
-| ------- | --------------------------- |
-| `w`     | Save note (normal mode)     |
-| `q`     | Discard note without asking |
-| `<Esc>` | Ask to save or discard      |
+| Key     | Action                          |
+| ------- | ------------------------------- |
+| `<C-s>` | Save note (normal & insert)     |
+| `q`     | Discard note without asking     |
+| `<Esc>` | Ask to save or discard          |
+| `<C-d>` | Delete note (with confirmation) |
 
 ## Configuration
 
@@ -195,10 +220,21 @@ require("codereview").setup({
   border = "rounded",               -- "rounded" | "single" | "double" | "solid" | "none"
   explorer_title = " Files ",
   diff_title = " Diff ",
-  note_truncate_len = 30,           -- truncation of notes in explorer sub-items
+  note_truncate_len = 30,           -- max chars per line in explorer note sub-rows
+  note_multiline = false,           -- false = collapse note to one line | true = show each line
+  note_glyph = "⊳",                -- glyph prefix for note rows; use ">" for ASCII fallback
   virtual_text_truncate_len = 60,   -- truncation of virtual text annotations
+  virtual_text_max_lines = 3,       -- extra lines shown below the code line (0 = eol only)
   max_diff_lines = 1200,            -- initial visible diff lines before truncation
   diff_page_size = 400,             -- extra lines revealed per load-more action
+  explorer_layout = "flat",         -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
+  explorer_path_hl = "Comment",     -- highlight group for the dimmed directory portion (flat layout)
+  explorer_show_help = true,        -- show "(? help)" hint in explorer header
+  explorer_path_separator = "  ",   -- separator between filename and dir in flat layout
+  explorer_status_icons = nil,      -- override status icons, e.g. { M = "M", A = "A", D = "D" }
+  note_count_hl = "WarningMsg",     -- highlight group for note count "(3)" in explorer
+  note_float_width = 80,            -- max width for the note editor float window
+  treesitter_max_lines = 5000,      -- disable treesitter highlighting above this line count
 
   keymaps = {
     note = "n",                     -- smart add/edit note on current line
@@ -212,6 +248,7 @@ require("codereview").setup({
     notes_picker = "<Space>n",
     quit = "q",
     toggle_notes = "za",
+    toggle_layout = "t",            -- toggle between flat / tree explorer layout
     refresh = "R",
     load_more_diff = "L",
     go_to_file = "gf",              -- open file in new tab at cursor line
@@ -223,6 +260,7 @@ require("codereview").setup({
     default_filename = "review-%Y-%m-%d.md",
     path = nil,                     -- nil = git root
     context_lines = 0,              -- extra lines above/below when auto-reading code from disk
+    export_format = "inline",       -- "inline" | "compact" | "block"
   },
 })
 ```

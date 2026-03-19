@@ -3,8 +3,14 @@ local M = {}
 local config = require("codereview.config")
 local state = require("codereview.state")
 local git = require("codereview.git")
+local valid = require("codereview.util.validate")
 local opening = false
+local open_gen = 0
 local refreshing = false
+local refresh_gen = 0
+
+-- How long (ms) before an async lock auto-resets if the callback never fires.
+local ASYNC_TIMEOUT_MS = 10000
 
 local function ensure_config()
   if vim.tbl_isempty(config.options) then
@@ -63,7 +69,7 @@ local function set_diff_message(message)
   diff_view.clear()
 
   local function set_msg(buf)
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+    if not valid.buf(buf) then return end
     virt.clear_extmarks(buf)
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { message })
@@ -160,6 +166,18 @@ function M.open(args)
 
   ensure_config()
   opening = true
+  open_gen = open_gen + 1
+  local my_gen = open_gen
+
+  vim.notify("codereview: scanning...", vim.log.levels.INFO)
+
+  -- Safety timeout: auto-unlock if the async callback chain never completes.
+  vim.defer_fn(function()
+    if opening and open_gen == my_gen then
+      opening = false
+      vim.notify("codereview: open timed out", vim.log.levels.WARN)
+    end
+  end, ASYNC_TIMEOUT_MS)
 
   state.init()
   require("codereview.notes.store").reset_cache()
@@ -170,6 +188,7 @@ function M.open(args)
   local args_display = #s.diff_args > 0 and table.concat(s.diff_args, " ") or "(working tree)"
 
   git.get_repo_root(nil, function(root)
+    if open_gen ~= my_gen then return end
     if not root then
       opening = false
       state.reset()
@@ -179,6 +198,7 @@ function M.open(args)
 
     s.root = root
     git.get_changed_files(root, s.diff_args, function(files)
+      if open_gen ~= my_gen then return end
       opening = false
       if files == nil then
         state.reset()
@@ -270,12 +290,30 @@ function M.difftool(local_path, remote_path, merged_path)
           end
         end
         if not found then
-          table.insert(all_files, 1, {
-            path = rel, status = "M",
-            local_file = local_p, remote_file = remote_p,
-            expanded = false,
-          })
-          current_idx = 1
+          -- Try suffix match: rel might be a basename while git returns full paths
+          local suffix = "/" .. rel
+          local match_idx = nil
+          for i, f in ipairs(all_files) do
+            if f.path:sub(-#suffix) == suffix or f.path == rel then
+              if match_idx then
+                match_idx = nil  -- ambiguous: multiple matches, give up
+                break
+              end
+              match_idx = i
+            end
+          end
+          if match_idx then
+            all_files[match_idx].local_file = local_p
+            all_files[match_idx].remote_file = remote_p
+            current_idx = match_idx
+          else
+            table.insert(all_files, 1, {
+              path = rel, status = "M",
+              local_file = local_p, remote_file = remote_p,
+              expanded = false,
+            })
+            current_idx = 1
+          end
         end
         opening = false
         if #all_files == 0 then
@@ -307,8 +345,9 @@ function M.difftool(local_path, remote_path, merged_path)
         inject_and_open(rel, local_path, remote_path)
       end)
     else
-      -- Fallback without $MERGED: use basename of remote_path (original behavior)
-      local rel_path = vim.fn.fnamemodify(remote_path, ":t")
+      -- Fallback without $MERGED: use basename of whichever path is not /dev/null
+      local source = remote_path ~= "/dev/null" and remote_path or local_path
+      local rel_path = vim.fn.fnamemodify(source, ":t")
       s.root = vim.fn.getcwd()
       inject_and_open(rel_path, local_path, remote_path)
     end
@@ -321,12 +360,24 @@ function M.refresh()
   local s = state.get()
   if not s.mode or refreshing then return end
   refreshing = true
+  refresh_gen = refresh_gen + 1
+  local my_gen = refresh_gen
+
+  -- Safety timeout: auto-unlock if the async callback never fires.
+  vim.defer_fn(function()
+    if refreshing and refresh_gen == my_gen then
+      refreshing = false
+      vim.notify("codereview: refresh timed out", vim.log.levels.WARN)
+    end
+  end, ASYNC_TIMEOUT_MS)
 
   local explorer = require("codereview.ui.explorer")
   local diff_view = require("codereview.ui.diff_view")
   local current_file = s.files[s.current_file_idx]
 
   local function apply_refresh(files)
+    -- A newer refresh was started while this one was in-flight; discard.
+    if refresh_gen ~= my_gen then return end
     refreshing = false
     if not files then return end
 
@@ -352,6 +403,7 @@ function M.refresh()
 
   if s.mode == "review" then
     git.get_changed_files(s.root, s.diff_args, function(files)
+      if refresh_gen ~= my_gen then return end
       if not files then
         apply_refresh(nil)
         return
@@ -364,10 +416,11 @@ function M.refresh()
   elseif s.mode == "difftool" and s.local_dir and s.remote_dir then
     git.scan_dir_diff(s.local_dir, s.remote_dir, apply_refresh)
   else
+    -- Single-file difftool: no re-scan possible, just re-render
     refreshing = false
     explorer.render()
     diff_view.show_file(s.current_file_idx)
-    vim.notify("codereview: refreshed", vim.log.levels.INFO)
+    vim.notify("codereview: refreshed (single-file mode — no re-scan)", vim.log.levels.INFO)
   end
 end
 

@@ -5,8 +5,11 @@ local diff_view = require("codereview.ui.diff_view")
 local diff_state = require("codereview.ui.diff_view.state")
 local layout = require("codereview.ui.layout")
 local note_float = require("codereview.ui.note_float")
+local store = require("codereview.notes.store")
 local explorer_state = require("codereview.ui.explorer.state")
 local view = require("codereview.ui.explorer.view")
+local valid = require("codereview.util.validate")
+local prompt = require("codereview.util.prompt")
 
 local function action_key(action)
   if not action then
@@ -53,7 +56,7 @@ function M.select_file(idx)
 
   local win = s.windows.explorer
   local cursor = nil
-  if opts.preserve_cursor and win and vim.api.nvim_win_is_valid(win) then
+  if opts.preserve_cursor and valid.win(win) then
     cursor = vim.api.nvim_win_get_cursor(win)
   end
 
@@ -137,6 +140,14 @@ function M.open_current()
   M.preview_action(action, { focus_diff = true, move_cursor = true })
 end
 
+function M.edit_current_note()
+  local action = view.get_current_action()
+  if not action or action.type ~= "note" then return end
+  local note = store.get(action.filepath, action.line, action.side)
+  if not note then return end
+  note_float.open(action.filepath, action.line, action.line, note.code, note.text, action.side)
+end
+
 function M.toggle_notes()
   local action = view.get_current_action()
   if not action then
@@ -185,7 +196,7 @@ function M.next_file()
   if from < #s.files then
     M.preview_action({ type = "file", idx = from + 1 }, { move_cursor = true })
   else
-    vim.notify("No more files", vim.log.levels.INFO, { title = "CodeReview" })
+    vim.api.nvim_echo({ { "CodeReview: no more files", "Comment" } }, false, {})
   end
 end
 
@@ -194,7 +205,7 @@ function M.prev_file()
   if from > 1 then
     M.preview_action({ type = "file", idx = from - 1 }, { move_cursor = true })
   else
-    vim.notify("Already at first file", vim.log.levels.INFO, { title = "CodeReview" })
+    vim.api.nvim_echo({ { "CodeReview: already at first file", "Comment" } }, false, {})
   end
 end
 
@@ -202,12 +213,19 @@ function M.refresh()
   require("codereview").refresh()
 end
 
+function M.toggle_layout()
+  local cfg = require("codereview.config").options
+  cfg.explorer_layout = (cfg.explorer_layout == "tree") and "flat" or "tree"
+  view.render()
+  vim.api.nvim_echo({ { "CodeReview: layout → " .. cfg.explorer_layout, "Comment" } }, false, {})
+end
+
 function M.quit()
   if note_float.is_open() then
     note_float.ask_save_or_discard()
     return
   end
-  layout.safe_close(false)
+  layout.quit_with_prompt()
 end
 
 function M.cycle_focus()
@@ -218,6 +236,29 @@ function M.save()
   require("codereview.review.exporter").save_with_prompt()
 end
 
+function M.delete_note(force)
+  local action = view.get_current_action()
+  if not action or action.type ~= "note" then
+    return
+  end
+
+  local function do_delete()
+    store.delete(action.filepath, action.line, action.side or "new")
+    view.render()
+    diff_view.refresh_notes()
+    M.clear_last_preview_key()
+    M.preview_current({ preserve_cursor = true })
+  end
+
+  if force then
+    do_delete()
+  else
+    if prompt.confirm("Delete note?") then
+      do_delete()
+    end
+  end
+end
+
 function M.show_help()
   local km = require("codereview.config").options.keymaps
   local lines = {
@@ -225,11 +266,14 @@ function M.show_help()
     " ──────────────────────────────",
     " Explorer",
     " <CR> / l      Open file in diff",
-    " h / " .. (km.toggle_notes or "za") .. "         Toggle notes",
+    " " .. (km.toggle_notes or "za") .. "             Toggle notes",
+    " d             Delete note (confirm)",
+    " D             Delete note (force)",
     " " .. (km.next_file or "]f") .. " / " .. (km.prev_file or "[f") .. "         Next / prev file",
     " " .. (km.refresh or "R") .. "             Refresh",
     " " .. (km.quit or "q") .. "             Quit",
     " " .. (km.cycle_focus or "<Tab>") .. "          Cycle focus",
+    " " .. (km.toggle_layout or "t") .. "             Toggle flat / tree",
     " ?             This help",
     " ──────────────────────────────",
     " Diff view",
@@ -244,9 +288,10 @@ function M.show_help()
     " " .. (km.view_file or "gF") .. "            View full file (new tab)",
     " ──────────────────────────────",
     " Note editor",
-    " w             Save note",
+    " <C-s> / :w    Save note",
+    " <C-d>         Delete note",
     " q             Discard",
-    " <Esc>         Save or discard?",
+    " <Esc>         Save note",
     " ──────────────────────────────",
     " Press any key to close",
   }
