@@ -27,6 +27,7 @@ function M.apply_highlights(buf, lines, actions_by_line, dim_by_line, tag_ranges
           if     status == "A"            then hl = "DiffAdd"
           elseif status == "D"            then hl = "DiffDelete"
           elseif status == "M" or status == "R" then hl = "DiffChange"
+          elseif status == "?" then hl = "DiffAdd"
           end
         end
 

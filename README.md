@@ -234,6 +234,7 @@ require("codereview").setup({
   explorer_status_icons = nil,      -- override status icons, e.g. { M = "M", A = "A", D = "D" }
   note_count_hl = "WarningMsg",     -- highlight group for note count "(3)" in explorer
   note_float_width = 80,            -- max width for the note editor float window
+  show_untracked = false,             -- show untracked files in review mode
   treesitter_max_lines = 5000,      -- disable treesitter highlighting above this line count
 
   keymaps = {
