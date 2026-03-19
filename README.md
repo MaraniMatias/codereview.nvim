@@ -1,6 +1,6 @@
 # CodeReview.nvim
 
-Inline code review on any `git diff`, right inside Neovim.
+Inline code review on any `git diff`, right inside Neovim and export to markdown file.
 
 [![Neovim](https://img.shields.io/badge/Neovim-%3E%3D0.9-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![License](https://img.shields.io/github/license/MaraniMatias/codereview.nvim)](LICENSE)
