@@ -8,7 +8,8 @@ M.defaults = {
 	border = "rounded", -- "rounded" | "single" | "double" | "solid" | "none"
 	explorer_title = " Files ",
 	diff_title = " Diff ",
-	note_truncate_len = 30, -- truncation of notes in explorer sub-items
+	note_truncate_len = 30,    -- truncation of notes in explorer sub-items (chars per line)
+	note_multiline = false,    -- false = collapse note to one line | true = show all lines
 	explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
 	explorer_path_hl = "Comment", -- highlight group for the dimmed directory portion (flat mode)
 	virtual_text_truncate_len = 60, -- truncation of virtual text (eol preview)
@@ -90,6 +91,11 @@ local function validate(opts)
 			opts.note_truncate_len,
 			function(v) return v == nil or (type(v) == "number" and v > 0) end,
 			"expected a positive number",
+		},
+		note_multiline = {
+			opts.note_multiline,
+			function(v) return v == nil or type(v) == "boolean" end,
+			"expected a boolean",
 		},
 		virtual_text_truncate_len = {
 			opts.virtual_text_truncate_len,

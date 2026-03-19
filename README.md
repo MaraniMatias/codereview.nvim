@@ -195,7 +195,8 @@ require("codereview").setup({
   border = "rounded",               -- "rounded" | "single" | "double" | "solid" | "none"
   explorer_title = " Files ",
   diff_title = " Diff ",
-  note_truncate_len = 30,           -- truncation of notes in explorer sub-items
+  note_truncate_len = 30,           -- max chars per line in explorer note sub-rows
+  note_multiline = false,           -- false = collapse note to one line | true = show each line
   virtual_text_truncate_len = 60,   -- truncation of virtual text annotations
   max_diff_lines = 1200,            -- initial visible diff lines before truncation
   diff_page_size = 400,             -- extra lines revealed per load-more action

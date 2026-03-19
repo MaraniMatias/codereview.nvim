@@ -50,17 +50,43 @@ end
 
 -- Note sub-rows shared between both layouts.
 -- Returns a list of { line, action } pairs.
+-- When config.note_multiline is true each line of the note becomes its own row,
+-- all sharing the same action (they all jump to the same anchor in the diff).
 local function note_rows(filepath, truncate_len)
-	local rows = {}
+	local rows      = {}
+	local multiline = config.options.note_multiline
+
 	for _, note in ipairs(store.get_for_file(filepath)) do
-		local short      = note.text:gsub("\n", " ")
 		local side       = note.side or "new"
 		local side_label = side == "old" and " (del)" or ""
-		local text       = short:sub(1, truncate_len) .. (#short > truncate_len and "…" or "")
-		table.insert(rows, {
-			line   = "    ⊳ L" .. note.line_start .. side_label .. ": " .. text,
-			action = { type = "note", filepath = filepath, line = note.line_start, side = side },
-		})
+		local action     = { type = "note", filepath = filepath, line = note.line_start, side = side }
+		local prefix     = "    ⊳ L" .. note.line_start .. side_label .. ": "
+		-- Indent for continuation lines: aligns under the text, not the "⊳" glyph.
+		-- Fixed at 6 spaces ("    ⊳ ") so it doesn't shift with line-number width.
+		local cont_indent = "      "
+
+		if multiline then
+			-- Split on real newlines and emit one row per line.
+			local first = true
+			for raw_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
+				local trimmed = raw_line:sub(1, truncate_len)
+					.. (#raw_line > truncate_len and "…" or "")
+				if first then
+					table.insert(rows, { line = prefix .. trimmed, action = action })
+					first = false
+				else
+					-- Skip trailing empty lines that result from a note ending with "\n"
+					if raw_line ~= "" or not (note.text:sub(-1) == "\n") then
+						table.insert(rows, { line = cont_indent .. trimmed, action = action })
+					end
+				end
+			end
+		else
+			-- Single-line mode: collapse newlines to spaces (original behaviour).
+			local short = note.text:gsub("\n", " ")
+			local text  = short:sub(1, truncate_len) .. (#short > truncate_len and "…" or "")
+			table.insert(rows, { line = prefix .. text, action = action })
+		end
 	end
 	return rows
 end
