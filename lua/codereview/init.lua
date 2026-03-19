@@ -4,7 +4,12 @@ local config = require("codereview.config")
 local state = require("codereview.state")
 local git = require("codereview.git")
 local opening = false
+local open_gen = 0
 local refreshing = false
+local refresh_gen = 0
+
+-- How long (ms) before an async lock auto-resets if the callback never fires.
+local ASYNC_TIMEOUT_MS = 10000
 
 local function ensure_config()
   if vim.tbl_isempty(config.options) then
@@ -160,6 +165,16 @@ function M.open(args)
 
   ensure_config()
   opening = true
+  open_gen = open_gen + 1
+  local my_gen = open_gen
+
+  -- Safety timeout: auto-unlock if the async callback chain never completes.
+  vim.defer_fn(function()
+    if opening and open_gen == my_gen then
+      opening = false
+      vim.notify("codereview: open timed out", vim.log.levels.WARN)
+    end
+  end, ASYNC_TIMEOUT_MS)
 
   state.init()
   require("codereview.notes.store").reset_cache()
@@ -170,6 +185,7 @@ function M.open(args)
   local args_display = #s.diff_args > 0 and table.concat(s.diff_args, " ") or "(working tree)"
 
   git.get_repo_root(nil, function(root)
+    if open_gen ~= my_gen then return end
     if not root then
       opening = false
       state.reset()
@@ -179,6 +195,7 @@ function M.open(args)
 
     s.root = root
     git.get_changed_files(root, s.diff_args, function(files)
+      if open_gen ~= my_gen then return end
       opening = false
       if files == nil then
         state.reset()
@@ -321,12 +338,24 @@ function M.refresh()
   local s = state.get()
   if not s.mode or refreshing then return end
   refreshing = true
+  refresh_gen = refresh_gen + 1
+  local my_gen = refresh_gen
+
+  -- Safety timeout: auto-unlock if the async callback never fires.
+  vim.defer_fn(function()
+    if refreshing and refresh_gen == my_gen then
+      refreshing = false
+      vim.notify("codereview: refresh timed out", vim.log.levels.WARN)
+    end
+  end, ASYNC_TIMEOUT_MS)
 
   local explorer = require("codereview.ui.explorer")
   local diff_view = require("codereview.ui.diff_view")
   local current_file = s.files[s.current_file_idx]
 
   local function apply_refresh(files)
+    -- A newer refresh was started while this one was in-flight; discard.
+    if refresh_gen ~= my_gen then return end
     refreshing = false
     if not files then return end
 
@@ -352,6 +381,7 @@ function M.refresh()
 
   if s.mode == "review" then
     git.get_changed_files(s.root, s.diff_args, function(files)
+      if refresh_gen ~= my_gen then return end
       if not files then
         apply_refresh(nil)
         return
