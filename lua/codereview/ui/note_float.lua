@@ -48,10 +48,13 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   local side_label = side == "old" and " (deleted)" or ""
   local top_lines = {}
 
+  -- N08: show line numbers in code context block for reference
   if code and code ~= "" then
     table.insert(top_lines, "```" .. ext)
+    local code_lnum = line_start
     for line in (code .. "\n"):gmatch("([^\n]*)\n") do
-      table.insert(top_lines, line)
+      table.insert(top_lines, string.format("%d │ %s", code_lnum, line))
+      code_lnum = code_lnum + 1
     end
     table.insert(top_lines, "```")
   end
@@ -64,8 +67,10 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   local note_lines = existing_text and vim.split(existing_text, "\n") or { "" }
 
   -- Calculate window size and position
+  -- N03: configurable float width instead of hardcoded 80
   local ui = vim.api.nvim_list_uis()[1]
-  local width = math.min(80, ui.width - 10)
+  local max_width = config.options.note_float_width or 80
+  local width = math.min(max_width, ui.width - 10)
   local total_height = math.min(30, ui.height - 6)
   local col = math.floor((ui.width - width) / 2)
 
@@ -302,8 +307,12 @@ function M.confirm()
 
   closing = false
 
+  -- N06: use nvim_echo for consistency with the rest of the plugin
   local side_suffix = ctx.side == "old" and " (deleted)" or ""
-  vim.notify("Note saved for L" .. ctx.line_start .. side_suffix, vim.log.levels.INFO)
+  vim.api.nvim_echo(
+    { { "CodeReview: note saved for L" .. ctx.line_start .. side_suffix, "Comment" } },
+    false, {}
+  )
 end
 
 function M.is_open()

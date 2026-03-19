@@ -10,7 +10,7 @@ local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
 local diff_old_ns = vim.api.nvim_create_namespace("codereview_diff_old")
 local diff_request_id = 0
 local _loading_idx = nil   -- tracks which file idx is currently being loaded
-local treesitter_max_lines = 5000
+-- D05: treesitter_max_lines is now configurable via config.options.treesitter_max_lines
 local _ts_lang_cache = {}   -- buf -> lang string | false
 local _hl_cache = {}        -- buf -> hash key string
 
@@ -24,6 +24,21 @@ vim.api.nvim_create_autocmd("BufDelete", {
 
 local function is_split_mode()
   return config.options.diff_view == "split"
+end
+
+-- D09: center placeholder messages in the diff panel instead of hardcoded padding
+local function placeholder_line(msg)
+  local s = state.get()
+  local width
+  if is_split_mode() then
+    local win = s.windows.diff_new
+    width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or 40
+  else
+    local win = s.windows.diff
+    width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or 40
+  end
+  local pad = math.max(0, math.floor((width - #msg) / 2))
+  return string.rep(" ", pad) .. msg
 end
 
 local function update_diff_title(file)
@@ -387,7 +402,7 @@ function M.show_file(idx)
     s.current_file_idx = idx
     diff_request_id = diff_request_id + 1
     reset_display()
-    set_placeholder({ "  (binary file -- diff not available)" })
+    set_placeholder({ placeholder_line("(binary file -- diff not available)") })
     update_diff_title(file)
     focus_top(get_focus_win())
     return
@@ -415,7 +430,7 @@ function M.show_file(idx)
   end
 
   reset_display()
-  set_placeholder({ "  (loading diff...)" })
+  set_placeholder({ placeholder_line("(loading diff...)") })
   _hl_cache[primary_buf] = nil
   if is_split_mode() and s.buffers.diff_old then
     _hl_cache[s.buffers.diff_old] = nil
@@ -432,14 +447,14 @@ function M.show_file(idx)
 
     if diff_text == nil then
       reset_display()
-      set_placeholder({ "  (failed to load diff)" })
+      set_placeholder({ placeholder_line("(failed to load diff)") })
       focus_top(get_focus_win())
       return
     end
 
     if diff_text == "" then
       reset_display()
-      set_placeholder({ "  (no changes)" })
+      set_placeholder({ placeholder_line("(no changes)") })
       focus_top(get_focus_win())
       return
     end
@@ -521,7 +536,8 @@ end
 -- future reference.
 function M._update_treesitter(buf, filepath, visible_until)
   local desired_lang = nil
-  if filepath and visible_until > 0 and visible_until <= treesitter_max_lines then
+  local ts_max = config.options.treesitter_max_lines or 5000
+  if filepath and visible_until > 0 and visible_until <= ts_max then
     local ext = filepath:match("%.([^%.]+)$")
     if ext then
       local ok, lang = pcall(vim.treesitter.language.get_lang, ext)
@@ -548,13 +564,18 @@ function M._update_treesitter(buf, filepath, visible_until)
   end
 end
 
+-- D06: monotonic counter as salt to avoid hash collisions between different
+-- diffs that happen to produce the same djb2 hash.
+local _hash_salt = 0
+
 local function _hash_line_types(line_types)
-  local h = 0
+  _hash_salt = _hash_salt + 1
+  local h = _hash_salt
   for i, ltype in ipairs(line_types) do
     -- djb2-style hash: combine index and first byte of type string
     h = ((h * 33) + i + (ltype:byte(1) or 0)) % 0x7FFFFFFF
   end
-  return #line_types .. ":" .. h
+  return #line_types .. ":" .. h .. ":" .. _hash_salt
 end
 
 function M._apply_diff_highlights(buf, line_types)
@@ -679,29 +700,22 @@ function M.get_current_lnum()
   return display.line_map[cursor[1]]
 end
 
--- Extract code context from a line_map (shared by new and old side)
+-- D03: extract code context by iterating over all_lines sequentially instead
+-- of using pairs() on line_map (non-deterministic order, unnecessary sort).
 local function _extract_code_context(line_start, line_end, line_map, all_lines)
-  local result = {}
   line_end = line_end or line_start
 
-  for display_lnum, lnum in pairs(line_map) do
-    if lnum >= line_start and lnum <= line_end then
-      result[display_lnum] = all_lines[display_lnum]
-    end
-  end
-
-  local keys = {}
-  for k in pairs(result) do table.insert(keys, k) end
-  table.sort(keys)
-
   local code_lines = {}
-  for _, k in ipairs(keys) do
-    local line = result[k]
-    local ltype = get_line_type(line)
-    if ltype == "+" or ltype == "-" or ltype == " " then
-      line = line:sub(2)
+  for display_lnum = 1, #all_lines do
+    local lnum = line_map[display_lnum]
+    if lnum and lnum >= line_start and lnum <= line_end then
+      local line = all_lines[display_lnum]
+      local ltype = get_line_type(line)
+      if ltype == "+" or ltype == "-" or ltype == " " then
+        line = line:sub(2)
+      end
+      table.insert(code_lines, line)
     end
-    table.insert(code_lines, line)
   end
 
   return table.concat(code_lines, "\n")
@@ -741,7 +755,8 @@ function M.get_current_line_info()
       local lnum = display_old.line_map[display_lnum]
       if lnum then
         local ltype = display_old.line_type_map[display_lnum] or "ctx"
-        local side = (ltype == "del") and "old" or "old"
+        -- D02: old-side panel always reports side="old" regardless of line type
+        local side = "old"
         return { lnum = lnum, side = side, type = ltype }
       end
       return nil

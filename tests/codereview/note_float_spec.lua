@@ -93,6 +93,7 @@ local orig_keymap_set = vim.keymap.set
 local orig_cmd = vim.cmd
 local orig_notify = vim.notify
 local orig_schedule = vim.schedule
+local orig_nvim_echo = vim.api.nvim_echo
 local orig_ui_select = vim.ui and vim.ui.select
 
 local next_buf_id = 100
@@ -153,6 +154,11 @@ local function setup_vim_stubs()
 
   vim.api.nvim_buf_add_highlight = function() end
 
+  -- N06: note_float now uses nvim_echo instead of vim.notify
+  vim.api.nvim_echo = function(chunks, history, opts)
+    log_call("nvim_echo", chunks)
+  end
+
   vim.keymap.set = function(mode, key, fn, opts)
     table.insert(registered_keymaps, { mode = mode, key = key, fn = fn })
   end
@@ -190,6 +196,7 @@ local function restore_vim_stubs()
   vim.cmd = orig_cmd
   vim.notify = orig_notify
   vim.schedule = orig_schedule
+  vim.api.nvim_echo = orig_nvim_echo
   if orig_ui_select then
     vim.ui.select = orig_ui_select
   end

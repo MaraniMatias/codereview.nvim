@@ -45,11 +45,15 @@ function M.apply_highlights(buf, lines, actions_by_line, dim_by_line, tag_ranges
           -- Dimmed directory portion
           local path_hl = config.options.explorer_path_hl or "Comment"
           vim.api.nvim_buf_add_highlight(buf, explorer_ns, path_hl, lnum - 1, dim.col_start, dim.col_end)
-          -- Tags after the dim region get status color (E01)
+          -- Tags after the dim region: note count gets its own hl (E13),
+          -- other tags (binary) use status color (E01).
           local tags = tag_ranges[lnum]
           if tags then
-            for _, range in ipairs(tags) do
-              vim.api.nvim_buf_add_highlight(buf, explorer_ns, hl, lnum - 1, range.col_start, range.col_end)
+            local note_hl = config.options.note_count_hl or "WarningMsg"
+            for ti, range in ipairs(tags) do
+              -- First tag is the note count "(N)", rest are binary/other
+              local tag_hl = (ti == 1) and note_hl or hl
+              vim.api.nvim_buf_add_highlight(buf, explorer_ns, tag_hl, lnum - 1, range.col_start, range.col_end)
             end
           end
         else

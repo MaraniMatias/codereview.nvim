@@ -13,6 +13,12 @@ M.defaults = {
 	note_glyph = "⊳",         -- glyph prefix for note rows in explorer; use ">" for ASCII fallback
 	explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
 	explorer_path_hl = "Comment", -- highlight group for the dimmed directory portion (flat mode)
+	explorer_show_help = true, -- E06: show "(? help)" hint in header; set false to hide
+	explorer_path_separator = "  ", -- E17: separator between filename and dir in flat mode
+	explorer_status_icons = nil, -- E12: override status icons, e.g. { M = "M", A = "A", D = "D" }
+	note_count_hl = "WarningMsg", -- E13: highlight group for note count "(3)" in explorer
+	note_float_width = 80,    -- N03: max width for note float window
+	treesitter_max_lines = 5000, -- D05: max diff lines for treesitter highlighting
 	virtual_text_truncate_len = 60, -- truncation of virtual text (eol preview)
 	virtual_text_max_lines = 3, -- extra lines shown below the code line (0 = eol only)
 	max_diff_lines = 1200, -- initial visible diff lines before truncation
@@ -132,6 +138,36 @@ local function validate(opts)
 			opts.explorer_path_hl,
 			function(v) return v == nil or type(v) == "string" end,
 			"expected a string (highlight group name)",
+		},
+		explorer_show_help = {
+			opts.explorer_show_help,
+			function(v) return v == nil or type(v) == "boolean" end,
+			"expected a boolean",
+		},
+		explorer_path_separator = {
+			opts.explorer_path_separator,
+			function(v) return v == nil or type(v) == "string" end,
+			"expected a string",
+		},
+		explorer_status_icons = {
+			opts.explorer_status_icons,
+			function(v) return v == nil or type(v) == "table" end,
+			"expected nil or a table",
+		},
+		note_count_hl = {
+			opts.note_count_hl,
+			function(v) return v == nil or type(v) == "string" end,
+			"expected a string (highlight group name)",
+		},
+		note_float_width = {
+			opts.note_float_width,
+			function(v) return v == nil or (type(v) == "number" and v > 0) end,
+			"expected a positive number",
+		},
+		treesitter_max_lines = {
+			opts.treesitter_max_lines,
+			function(v) return v == nil or (type(v) == "number" and v > 0) end,
+			"expected a positive number",
 		},
 	})
 

@@ -23,10 +23,19 @@ end
 -- Shared helpers
 -- ---------------------------------------------------------------------------
 
-local STATUS_ICONS = {
+-- E12: default status icons; users can override with explorer_status_icons config.
+local DEFAULT_STATUS_ICONS = {
 	M = "[M]", A = "[A]", D = "[D]",
 	R = "[R]", C = "[C]", U = "[U]",
 }
+
+local function get_status_icons()
+	local custom = config.options.explorer_status_icons
+	if custom then
+		return vim.tbl_extend("force", DEFAULT_STATUS_ICONS, custom)
+	end
+	return DEFAULT_STATUS_ICONS
+end
 
 -- Configurable note glyph — E15: ⊳ may not render in all terminal fonts.
 -- Fallback to ASCII ">" when config says so.
@@ -115,16 +124,22 @@ local function build_flat(files, current_file_idx)
 	-- separately instead of letting them fall inside the dim region.
 	local tag_ranges      = {}  -- lnum → { col_start, col_end }[]
 	local truncate_len    = config.options.note_truncate_len
+	local STATUS_ICONS    = get_status_icons()
 
+	-- E06/E16: build header with optional help hint and layout indicator
 	local total  = #files
+	local help_hint  = config.options.explorer_show_help ~= false and "  (? help)" or ""
+	local layout_tag = " [flat]"  -- E16: indicate active layout
 	local header = total > 0
-		and string.format("CodeReview [%d/%d]  (? help)", current_file_idx or 0, total)
-		or  "CodeReview  (? help)"
+		and string.format("CodeReview [%d/%d]" .. layout_tag .. help_hint, current_file_idx or 0, total)
+		or  ("CodeReview" .. layout_tag .. help_hint)
 	table.insert(lines, header)
+
+	-- E11: separator between header and file list
+	table.insert(lines, "")
 
 	-- E14: empty state message when there are no files
 	if total == 0 then
-		table.insert(lines, "")
 		table.insert(lines, "  No files changed")
 		return { lines = lines, actions_by_line = actions_by_line, dim_by_line = dim_by_line, tag_ranges = tag_ranges }
 	end
@@ -160,10 +175,24 @@ local function build_flat(files, current_file_idx)
 			dir_display = "./"
 		end
 
-		local dim_part = dir_display and (dir_display ~= "" and ("  " .. dir_display) or "") or ""
+		-- E17: configurable separator between filename and dir path
+		local sep = config.options.explorer_path_separator or "  "
+		local dim_part = dir_display and (dir_display ~= "" and (sep .. dir_display) or "") or ""
 
 		-- Build line: prefix + dim_part + tags (note_marker, binary_tag come AFTER dim)
 		local full_line = prefix .. dim_part .. note_marker .. binary_tag
+
+		-- E05: truncate with ellipsis if line exceeds explorer panel width
+		local exp_width = config.options.explorer_width or 30
+		if vim.fn.strdisplaywidth(full_line) > exp_width then
+			-- Truncate the dim_part to fit, keeping prefix + tags intact
+			local avail = exp_width - vim.fn.strdisplaywidth(prefix .. note_marker .. binary_tag) - 1  -- -1 for "…"
+			if avail > 0 and dir_display and dir_display ~= "" then
+				local truncated_dir = vim.fn.strcharpart(sep .. dir_display, 0, avail)
+				dim_part = truncated_dir .. "…"
+				full_line = prefix .. dim_part .. note_marker .. binary_tag
+			end
+		end
 		table.insert(lines, full_line)
 		actions_by_line[#lines] = { type = "file", idx = idx }
 
@@ -214,16 +243,22 @@ local function build_tree(files, current_file_idx)
 	local lines           = {}
 	local actions_by_line = {}
 	local truncate_len    = config.options.note_truncate_len
+	local STATUS_ICONS    = get_status_icons()
 
+	-- E06/E16: build header with optional help hint and layout indicator
 	local total  = #files
+	local help_hint  = config.options.explorer_show_help ~= false and "  (? help)" or ""
+	local layout_tag = " [tree]"  -- E16: indicate active layout
 	local header = total > 0
-		and string.format("CodeReview [%d/%d]  (? help)", current_file_idx or 0, total)
-		or  "CodeReview  (? help)"
+		and string.format("CodeReview [%d/%d]" .. layout_tag .. help_hint, current_file_idx or 0, total)
+		or  ("CodeReview" .. layout_tag .. help_hint)
 	table.insert(lines, header)
+
+	-- E11: separator between header and file list
+	table.insert(lines, "")
 
 	-- E14: empty state message when there are no files
 	if total == 0 then
-		table.insert(lines, "")
 		table.insert(lines, "  No files changed")
 		return { lines = lines, actions_by_line = actions_by_line, dim_by_line = {} }
 	end
@@ -273,6 +308,8 @@ local function build_tree(files, current_file_idx)
 
 			if file.expanded then
 				for _, row in ipairs(note_rows(file.path, truncate_len)) do
+					-- E10: note_rows already have 4-space indent; add minimal tree
+					-- indent ("  ") instead of nesting deeper with the dir path.
 					table.insert(lines, "  " .. row.line)
 					actions_by_line[#lines] = row.action
 				end

@@ -6,6 +6,7 @@ local lifecycle_group = vim.api.nvim_create_augroup("CodeReviewLayoutLifecycle",
 local buffer_handlers_group = vim.api.nvim_create_augroup("CodeReviewBufferHandlers", { clear = false })
 local active_session_id = 0
 local blocked_close_session_id = nil
+local saved_statusline = nil  -- L04: saved statusline to restore on close
 local teardown_in_progress = false
 local teardown_scheduled = false
 local write_in_progress = false
@@ -246,6 +247,11 @@ local function finalize_close(prev_win)
   blocked_close_session_id = nil
   teardown_in_progress = false
   teardown_scheduled = false
+  -- L04: restore original statusline
+  if saved_statusline ~= nil then
+    vim.o.statusline = saved_statusline
+    saved_statusline = nil
+  end
   restore_previous_window(prev_win)
 end
 
@@ -444,9 +450,12 @@ setup_lifecycle_autocmds = function(session_id, wins, bufs)
     })
   end
 
+  -- L06: guard resize callback with session_id to prevent stale autocmds
+  -- from a previous session from firing.
   vim.api.nvim_create_autocmd("VimResized", {
     group = lifecycle_group,
     callback = function()
+      if session_id ~= active_session_id then return end
       M.resize()
     end,
   })
@@ -488,6 +497,8 @@ function M.create()
   local base_win = vim.api.nvim_get_current_win()
   local bg_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_win_set_buf(base_win, bg_buf)
+  -- L04: save the original statusline before overwriting
+  saved_statusline = vim.o.statusline
   vim.api.nvim_set_option_value("statusline", " ", { win = base_win })
 
   -- Compute float dimensions
