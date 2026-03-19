@@ -2,6 +2,7 @@ local M = {}
 local state = require("codereview.state")
 local store = require("codereview.notes.store")
 local config = require("codereview.config")
+local prompt = require("codereview.util.prompt")
 
 local function read_lines(abs_path, first, last)
 	local f = io.open(abs_path, "r")
@@ -185,31 +186,30 @@ function M._prompt_filename(save_dir, default_name, on_save)
 		if vim.fn.filereadable(full_path) == 1 then
 			-- File already exists: offer Overwrite / Rename / Cancel
 			vim.schedule(function()
-				vim.ui.select(
-					{ "Overwrite", "Rename", "Cancel" },
-					{ prompt = '"' .. filename .. '" already exists:' },
-					function(choice)
-						if choice == "Overwrite" then
-							local ok = M.save(full_path)
-							if ok then
-								vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
-							end
-							if on_save then
-								on_save(ok)
-							end
-						elseif choice == "Rename" then
-							-- Loop back with current name as new default
-							vim.schedule(function()
-								M._prompt_filename(save_dir, filename, on_save)
-							end)
-						else
-							vim.notify("Save cancelled", vim.log.levels.INFO)
-							if on_save then
-								on_save(false)
-							end
-						end
+				local choice = prompt.choose('"' .. filename .. '" already exists:', {
+					{ key = "o", label = "overwrite", value = "overwrite" },
+					{ key = "r", label = "rename", value = "rename" },
+					{ key = "c", label = "cancel", value = "cancel" },
+				})
+				if choice == "overwrite" then
+					local ok = M.save(full_path)
+					if ok then
+						vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
 					end
-				)
+					if on_save then
+						on_save(ok)
+					end
+				elseif choice == "rename" then
+					-- Loop back with current name as new default
+					vim.schedule(function()
+						M._prompt_filename(save_dir, filename, on_save)
+					end)
+				else
+					vim.notify("Save cancelled", vim.log.levels.INFO)
+					if on_save then
+						on_save(false)
+					end
+				end
 			end)
 		else
 			local ok = M.save(full_path)
@@ -236,20 +236,14 @@ function M.save_with_prompt(on_save)
 	vim.schedule(function()
 		if #all_notes == 0 then
 			-- Warn the user that there are no notes before saving
-			vim.ui.select(
-				{ "Save anyway", "Cancel" },
-				{ prompt = "No notes written yet — save empty review?" },
-				function(choice)
-					if choice == "Save anyway" then
-						M._prompt_filename(save_dir, default_name, on_save)
-					else
-						vim.notify("Save cancelled", vim.log.levels.INFO)
-						if on_save then
-							on_save(false)
-						end
-					end
+			if prompt.confirm("No notes written yet — save empty review?") then
+				M._prompt_filename(save_dir, default_name, on_save)
+			else
+				vim.notify("Save cancelled", vim.log.levels.INFO)
+				if on_save then
+					on_save(false)
 				end
-			)
+			end
 		else
 			M._prompt_filename(save_dir, default_name, on_save)
 		end

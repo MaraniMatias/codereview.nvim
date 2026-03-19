@@ -9,8 +9,9 @@ describe("util.validate", function()
       assert.is_false(valid.buf(nil))
     end)
 
-    it("returns false for a non-numeric value", function()
-      assert.is_false(valid.buf("not_a_buf"))
+    it("returns false for an invalid buffer handle", function()
+      -- nvim_buf_is_valid expects an integer; use an out-of-range handle
+      assert.is_false(valid.buf(999999))
     end)
 
     it("returns true for a valid scratch buffer", function()

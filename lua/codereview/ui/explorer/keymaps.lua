@@ -49,6 +49,7 @@ function M.setup(buf)
   vim.keymap.set("n", "d", function() actions.delete_note(false) end, opts)
   vim.keymap.set("n", "D", function() actions.delete_note(true) end, opts)
   vim.keymap.set("n", "?", actions.show_help, opts)
+  vim.keymap.set("n", km.note, actions.edit_current_note, opts)
 
   layout.setup_quit_handlers(buf)
   layout.setup_write_handlers(buf)

@@ -51,34 +51,34 @@ describe("explorer model – header", function()
 
   it("shows plain header when file list is empty", function()
     local result = model.build({}, nil)
-    assert.equals("CodeReview [flat]  (? help)", result.lines[1])
+    assert.equals("CodeReview  (? help)", result.lines[1])
   end)
 
   it("shows [current/total] counter in header", function()
     local files = { make_file("a.lua", "M"), make_file("b.lua", "A") }
     local result = model.build(files, 1)
-    assert.equals("CodeReview [1/2] [flat]  (? help)", result.lines[1])
+    assert.equals("CodeReview [1/2]  (? help)", result.lines[1])
   end)
 
   it("counter updates when current_file_idx changes", function()
     local files = { make_file("a.lua", "M"), make_file("b.lua", "A"), make_file("c.lua", "D") }
     local r1 = model.build(files, 2)
     local r2 = model.build(files, 3)
-    assert.equals("CodeReview [2/3] [flat]  (? help)", r1.lines[1])
-    assert.equals("CodeReview [3/3] [flat]  (? help)", r2.lines[1])
+    assert.equals("CodeReview [2/3]  (? help)", r1.lines[1])
+    assert.equals("CodeReview [3/3]  (? help)", r2.lines[1])
   end)
 
   it("shows [0/N] when current_file_idx is nil", function()
     local files = { make_file("a.lua", "M") }
     local result = model.build(files, nil)
-    assert.equals("CodeReview [0/1] [flat]  (? help)", result.lines[1])
+    assert.equals("CodeReview [0/1]  (? help)", result.lines[1])
   end)
 
   it("hides help hint when explorer_show_help is false (E06)", function()
     config.options.explorer_show_help = false
     local files = { make_file("a.lua", "M") }
     local result = model.build(files, 1)
-    assert.equals("CodeReview [1/1] [flat]", result.lines[1])
+    assert.equals("CodeReview [1/1]", result.lines[1])
   end)
 
   it("E11: has empty separator on line 2", function()

@@ -10,9 +10,10 @@ local closing = false
 -- Re-entry guard: true while ask_save_or_discard prompt is visible
 local asking = false
 
--- Ask user whether to save or discard the current note (callable externally)
--- uses vim.ui.select instead of vim.fn.confirm to avoid blocking in
--- GUI frontends (firenvim, neovide, etc.)
+-- Ask user whether to save, discard, or delete the current note.
+-- Shows options in the float footer and waits for a single keypress.
+-- When editing an existing note, also offers "delete".
+-- Esc on the prompt returns to editing as if nothing happened.
 function M.ask_save_or_discard()
   if not float_ctx or asking then return end
   asking = true
@@ -24,8 +25,43 @@ function M.ask_save_or_discard()
     M.close()
     return
   end
+
+  -- Show options in the float footer
+  local footer = ctx.is_edit
+    and " Save? (y)es · (n)o · (d)iscard · <Esc> cancel "
+    or  " Save? (y)es · (n)o · <Esc> cancel "
+  if valid.win(ctx.note_win) then
+    vim.api.nvim_win_set_config(ctx.note_win, { footer = footer, footer_pos = "center" })
+    vim.cmd("redraw")
+  end
+
+  local ok, ch = pcall(vim.fn.getcharstr)
+  -- Restore footer (remove it)
+  if valid.win(ctx.note_win) then
+    vim.api.nvim_win_set_config(ctx.note_win, { footer = "", footer_pos = "center" })
+    vim.cmd("redraw")
+  end
+
   asking = false
-  M.confirm()
+  if not ok or ch == "\27" then
+    -- Esc or error → return to editing
+    return
+  end
+
+  local key = ch:lower()
+  if key == "y" or ch == "\r" then
+    M.confirm()
+  elseif key == "n" then
+    M.close()
+  elseif key == "d" and ctx.is_edit then
+    -- Clear buffer and confirm — empty text triggers deletion in store
+    if float_ctx then
+      vim.api.nvim_set_option_value("modifiable", true, { buf = float_ctx.note_buf })
+      vim.api.nvim_buf_set_lines(float_ctx.note_buf, 0, -1, false, { "" })
+    end
+    M.confirm()
+  end
+  -- Any other key → do nothing, return to editing
 end
 
 -- Open the note floating window
@@ -138,8 +174,6 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     border = border,
     title = note_title,
     title_pos = "center",
-    footer = " <C-s>/:w save  ·  <Esc> save  ·  <C-d> delete  ·  q discard ",
-    footer_pos = "center",
     zindex = 50,
   })
 
@@ -160,6 +194,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     line_end = line_end,
     code = code,
     side = side,
+    is_edit = existing_text ~= nil,
   }
 
   -- Clean up float_ctx if Neovim closes either window externally (:qa, etc.)
@@ -194,12 +229,6 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   -- Keymaps (on note buffer only)
   local opts = { noremap = true, silent = true, buffer = note_buf }
 
-  -- Save with <C-s> (both normal and insert mode) — does not steal w motion (N02 fix)
-  vim.keymap.set({ "n", "i" }, "<C-s>", function()
-    vim.cmd("stopinsert")
-    M.confirm()
-  end, opts)
-
   -- Esc in insert mode: exit insert then ask save/discard
   vim.keymap.set("i", "<Esc>", function()
     vim.cmd("stopinsert")
@@ -210,35 +239,6 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   vim.keymap.set("n", "<Esc>", function()
     M.ask_save_or_discard()
   end, opts)
-
-  -- q: discard without asking
-  vim.keymap.set("n", "q", function()
-    M.close()
-  end, opts)
-
-  -- <C-d> to delete an existing note (clear content + save empty = delete)
-  vim.keymap.set({ "n", "i" }, "<C-d>", function()
-    vim.cmd("stopinsert")
-    if not float_ctx then return end
-    vim.ui.select({ "Delete", "Cancel" }, { prompt = "Delete this note?" }, function(choice)
-      if choice == "Delete" then
-        -- Clear the buffer and confirm — empty text triggers deletion in store
-        if float_ctx then
-          vim.api.nvim_set_option_value("modifiable", true, { buf = float_ctx.note_buf })
-          vim.api.nvim_buf_set_lines(float_ctx.note_buf, 0, -1, false, { "" })
-        end
-        M.confirm()
-      end
-    end)
-  end, opts)
-
-  -- :w also saves the note (buftype=acwrite intercepts the write command)
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    buffer = note_buf,
-    callback = function()
-      M.confirm()
-    end,
-  })
 
   -- Autocmd to handle buffer leave — ask save/discard instead of silent close
   vim.api.nvim_create_autocmd("BufLeave", {

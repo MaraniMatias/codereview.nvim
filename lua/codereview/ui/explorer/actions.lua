@@ -9,6 +9,7 @@ local store = require("codereview.notes.store")
 local explorer_state = require("codereview.ui.explorer.state")
 local view = require("codereview.ui.explorer.view")
 local valid = require("codereview.util.validate")
+local prompt = require("codereview.util.prompt")
 
 local function action_key(action)
   if not action then
@@ -139,6 +140,14 @@ function M.open_current()
   M.preview_action(action, { focus_diff = true, move_cursor = true })
 end
 
+function M.edit_current_note()
+  local action = view.get_current_action()
+  if not action or action.type ~= "note" then return end
+  local note = store.get(action.filepath, action.line, action.side)
+  if not note then return end
+  note_float.open(action.filepath, action.line, action.line, note.code, note.text, action.side)
+end
+
 function M.toggle_notes()
   local action = view.get_current_action()
   if not action then
@@ -244,11 +253,9 @@ function M.delete_note(force)
   if force then
     do_delete()
   else
-    vim.ui.select({ "Yes", "No" }, { prompt = "Delete note?" }, function(choice)
-      if choice == "Yes" then
-        do_delete()
-      end
-    end)
+    if prompt.confirm("Delete note?") then
+      do_delete()
+    end
   end
 end
 
