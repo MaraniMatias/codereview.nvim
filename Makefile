@@ -7,8 +7,8 @@ deps:
 	@[ -d "$(PLENARY_DIR)" ] || (mkdir -p .deps && git clone --depth=1 $(PLENARY_REPO) $(PLENARY_DIR))
 
 test: deps
-	nvim --headless --noplugin \
-	  -c "PlenaryBustedDirectory tests { minimal_init = 'tests/minimal_init.lua', sequential = true, timeout = 10000 }" \
+	nvim --headless --noplugin -u tests/minimal_init.lua \
+	  -c "PlenaryBustedDirectory tests { sequential = true, timeout = 10000 }" \
 	  -c "qa!"
 
 lint:
