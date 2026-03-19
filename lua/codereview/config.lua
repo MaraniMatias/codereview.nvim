@@ -45,6 +45,7 @@ explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grou
 		default_filename = "review-%Y-%m-%d.md",
 		path = nil, -- nil = git root
 		context_lines = 0, -- extra lines above/below when auto-reading code from disk
+		export_format = "inline", -- "inline" | "compact" | "block"
 	},
 }
 
@@ -55,9 +56,10 @@ function M.is_split_mode()
 end
 
 -- Valid values for enum-like options
-local VALID_DIFF_VIEWS    = { unified = true, split = true }
-local VALID_BORDERS       = { rounded = true, single = true, double = true, solid = true, none = true }
+local VALID_DIFF_VIEWS      = { unified = true, split = true }
+local VALID_BORDERS         = { rounded = true, single = true, double = true, solid = true, none = true }
 local VALID_EXPLORER_LAYOUTS = { flat = true, tree = true }
+local VALID_EXPORT_FORMATS  = { inline = true, compact = true, block = true }
 
 -- Known keymap keys, to catch typos early
 local KNOWN_KEYMAP_KEYS = {
@@ -204,6 +206,11 @@ virtual_text_truncate_len = {
 				opts.review.context_lines,
 				function(v) return v == nil or (type(v) == "number" and v >= 0) end,
 				"expected a non-negative number",
+			},
+			["review.export_format"] = {
+				opts.review.export_format,
+				function(v) return v == nil or VALID_EXPORT_FORMATS[v] ~= nil end,
+				'expected "inline", "compact", or "block"',
 			},
 		})
 	end

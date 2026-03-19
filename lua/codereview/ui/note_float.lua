@@ -292,18 +292,6 @@ function M.confirm()
   require("codereview.ui.diff_view").refresh_notes()
   require("codereview.ui.explorer").render()
 
-  -- Mark buffers as modified so :wq triggers BufWriteCmd
-  for _, buf_key in ipairs({ "diff", "explorer" }) do
-    local buf = s.buffers[buf_key]
-    if valid.buf(buf) then
-      pcall(function()
-        vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-        vim.api.nvim_set_option_value("modified", true, { buf = buf })
-        vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
-      end)
-    end
-  end
-
   closing = false
 
   -- Restore focus to diff view so cursor doesn't get trapped

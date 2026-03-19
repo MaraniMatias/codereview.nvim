@@ -19,14 +19,38 @@ Inline code review on any `git diff`, right inside Neovim.
 
 ### Export Format
 
-Running `:w` or `:W` generates a Markdown file with each note grouped under its file path, including the relevant code context:
+Running `:w` or `:W` generates a Markdown file. Three formats are available via `review.export_format`:
+
+**`"inline"` (default)** — ref + first line of code, note text below:
+
+```markdown
+# Review 2026-03-14
+
+src/foo.js:0 `const result = a + b;`
+revisit this calculation
+
+handlers/user.js:67 `function handleUser(user) {`
+null check `user` before `.name`
+add logging for failed cases
+```
+
+**`"compact"`** — one line per note, no code:
+
+```markdown
+# Review 2026-03-14
+
+src/foo.js:0-1 - revisit this calculation
+handlers/user.js:67-72 - add null check for `user` before accessing `.name`
+```
+
+**`"block"`** — full code block per note:
 
 ````markdown
 # Review 2026-03-14
 
 `src/foo.js`
 
-```text {0,1}
+```text{0,1}
 const result = a + b;
 ```
 
@@ -34,7 +58,7 @@ revisit this calculation
 
 `handlers/user.js`
 
-```text {67,72}
+```text{67,72}
 function handleUser(user) {
   if (user.name) {
     return user.name;
@@ -236,6 +260,7 @@ require("codereview").setup({
     default_filename = "review-%Y-%m-%d.md",
     path = nil,                     -- nil = git root
     context_lines = 0,              -- extra lines above/below when auto-reading code from disk
+    export_format = "inline",       -- "inline" | "compact" | "block"
   },
 })
 ```

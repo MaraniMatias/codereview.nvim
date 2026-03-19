@@ -159,7 +159,7 @@ function M.setup(buf, diff_view)
       note_float.ask_save_or_discard()
       return
     end
-    layout.safe_close(false)
+    layout.quit_with_prompt()
   end, opts)
 
   layout.setup_quit_handlers(buf)

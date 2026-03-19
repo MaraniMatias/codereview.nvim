@@ -225,7 +225,7 @@ function M.quit()
     note_float.ask_save_or_discard()
     return
   end
-  layout.safe_close(false)
+  layout.quit_with_prompt()
 end
 
 function M.cycle_focus()

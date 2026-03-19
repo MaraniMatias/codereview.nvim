@@ -30,8 +30,113 @@ local function read_lines(abs_path, first, last)
 	return table.concat(slice, "\n")
 end
 
--- Generate the markdown review content
-function M.generate()
+-- Helper: resolve the first line of code for a note (used by inline/compact formats)
+local function first_code_line(note, root)
+	local side = note.side or "new"
+	if side == "old" then
+		return nil
+	end
+	local line = note.code
+	if line and line ~= "" then
+		-- note.code may be a multi-line block; take only the first line
+		line = line:match("([^\n]+)") or line
+	else
+		line = read_lines(root .. "/" .. note.filepath, note.line_start, note.line_start)
+	end
+	if line then
+		line = vim.trim(line)
+	end
+	return (line ~= "") and line or nil
+end
+
+-- Format: one entry per note, ref + inline code on one line, note text below
+--
+-- src/foo.js:0 `const result = a + b;`
+-- revisit this calculation
+--
+-- handlers/user.js:67 `function handleUser(user) {`
+-- null check `user` before `.name`
+-- add logging for failed cases
+local function generate_inline()
+	local date = os.date("%Y-%m-%d")
+	local lines = {}
+
+	table.insert(lines, "# Review " .. date)
+	table.insert(lines, "")
+
+	local all_notes = store.get_all()
+
+	if #all_notes == 0 then
+		table.insert(lines, "_Write your notes here._")
+		table.insert(lines, "")
+	else
+		local root = state.get().root or vim.fn.getcwd()
+
+		for _, note in ipairs(all_notes) do
+			local side = note.side or "new"
+			local side_suffix = side == "old" and " (deleted)" or ""
+			local ref = note.filepath .. side_suffix .. ":" .. note.line_start
+			local code = first_code_line(note, root)
+
+			if code then
+				table.insert(lines, ref .. " `" .. code .. "`")
+			else
+				table.insert(lines, ref)
+			end
+
+			if note.text and note.text ~= "" then
+				for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
+					table.insert(lines, text_line)
+				end
+			end
+
+			table.insert(lines, "")
+		end
+	end
+
+	return table.concat(lines, "\n")
+end
+
+-- Format: one line per note — ref range — note text (newlines collapsed, no code)
+--
+-- src/foo.js:0-1 — revisit this calculation
+-- handlers/user.js:67-72 — add null check for `user` before accessing `.name`
+local function generate_compact()
+	local date = os.date("%Y-%m-%d")
+	local lines = {}
+
+	table.insert(lines, "# Review " .. date)
+	table.insert(lines, "")
+
+	local all_notes = store.get_all()
+
+	if #all_notes == 0 then
+		table.insert(lines, "_Write your notes here._")
+		table.insert(lines, "")
+	else
+		for _, note in ipairs(all_notes) do
+			local side = note.side or "new"
+			local side_suffix = side == "old" and " (deleted)" or ""
+			local range = note.line_start .. "-" .. note.line_end
+			local ref = note.filepath .. side_suffix .. ":" .. range
+
+			local entry = ref
+			if note.text and note.text ~= "" then
+				local one_line = vim.trim(note.text:gsub("\n+", " "))
+				entry = entry .. " - " .. one_line
+			end
+
+			table.insert(lines, entry)
+		end
+
+		table.insert(lines, "")
+	end
+
+	return table.concat(lines, "\n")
+end
+
+-- Format: full code block per note (original behaviour)
+local function generate_block()
 	local date = os.date("%Y-%m-%d")
 	local lines = {}
 	local ctx = (config.options.review and config.options.review.context_lines) or 0
@@ -81,6 +186,18 @@ function M.generate()
 	end
 
 	return table.concat(lines, "\n")
+end
+
+-- Generate the markdown review content (dispatch by export_format)
+function M.generate()
+	local fmt = (config.options.review and config.options.review.export_format) or "inline"
+	if fmt == "compact" then
+		return generate_compact()
+	elseif fmt == "block" then
+		return generate_block()
+	else
+		return generate_inline()
+	end
 end
 
 -- Save to a file

@@ -594,15 +594,26 @@ function M.close(force)
   return true
 end
 
--- Close safely, warning if there are unsaved notes
-function M.safe_close(force)
+-- Quit with interactive prompt when notes are dirty.
+-- Called from QuitPre and the `q` keymap.
+function M.quit_with_prompt()
   local s = state.get()
-  if not force and s.notes_dirty then
-    vim.notify(
-      "E37: Review has unsaved notes. Use :q! to force or :w to save.",
-      vim.log.levels.WARN
-    )
-    return false
+  if s.notes_dirty then
+    local prompt = require("codereview.util.prompt")
+    local choice = prompt.choose("Unsaved notes.", {
+      { key = "s", label = "save",    value = "save" },
+      { key = "d", label = "discard", value = "discard" },
+      { key = "c", label = "cancel",  value = "cancel" },
+    })
+    if choice == "save" then
+      require("codereview.review.exporter").save_with_prompt(function(success)
+        if success then M.close(true) end
+      end)
+    elseif choice == "discard" then
+      M.close(true)
+    end
+    -- "cancel" or nil → stay in review
+    return choice == "save" or choice == "discard"
   end
   return M.close(true)
 end
@@ -650,19 +661,6 @@ function M.setup_quit_handlers(buf)
         return
       end
 
-      local force = vim.v.cmdbang == 1 or vim.v.cmdbang == true
-      local current_win = vim.api.nvim_get_current_win()
-
-      if not force and state.get().notes_dirty then
-        vim.v.event.abort = true
-        blocked_close_session_id = active_session_id
-        M.safe_close(false)
-        if valid.win(current_win) then
-          pcall(vim.api.nvim_set_current_win, current_win)
-        end
-        return
-      end
-
       -- If the plugin state was already cleaned up (e.g. after a partially
       -- failed close), don't abort the quit – let Neovim close normally.
       if not has_layout_state(state.get()) then
@@ -670,7 +668,8 @@ function M.setup_quit_handlers(buf)
       end
 
       vim.v.event.abort = true
-      local closed = M.safe_close(force)
+      local current_win = vim.api.nvim_get_current_win()
+      local closed = M.quit_with_prompt()
       if not closed and valid.win(current_win) then
         pcall(vim.api.nvim_set_current_win, current_win)
       end
