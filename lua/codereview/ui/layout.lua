@@ -201,13 +201,26 @@ local function dismantle_review_tab(review_tab, buffers)
     return true
   end
 
+  -- L07: build a set of our own buffers so we only close windows that belong
+  -- to the plugin, leaving windows from other plugins or user splits untouched.
+  local our_bufs = {}
+  for _, buf in ipairs(buffers) do
+    our_bufs[buf] = true
+  end
+
   local ok = call_in_tab(review_tab, function()
     local wins = vim.api.nvim_tabpage_list_wins(review_tab)
 
     for idx = #wins, 2, -1 do
       local win = wins[idx]
       if is_valid_window(win) then
-        pcall(vim.api.nvim_win_close, win, true)
+        local win_buf = vim.api.nvim_win_get_buf(win)
+        -- L07: only close if the window holds one of our buffers or has a
+        -- codereview:// buffer name
+        local buf_name = vim.api.nvim_buf_get_name(win_buf)
+        if our_bufs[win_buf] or buf_name:match("^codereview://") then
+          pcall(vim.api.nvim_win_close, win, true)
+        end
       end
     end
 
@@ -323,6 +336,8 @@ local function restore_blocked_layout()
         s.buffers.diff_new = new_buf
         diff_view.setup_keymaps(old_buf)
         diff_view.setup_keymaps(new_buf)
+        -- L05: re-sync scroll state after recreating split panels
+        pcall(vim.cmd, "syncbind")
       else
         local diff_buf = create_diff_buffer()
         local diff_win = vim.api.nvim_open_win(diff_buf, false, {
@@ -611,6 +626,12 @@ function M.resize()
       width = dims.diff.width, height = dims.diff.height,
     })
   end
+
+  -- L02: re-render content so virtual text, truncation lines, treesitter
+  -- highlights, and explorer layout stay in sync with the new dimensions.
+  local diff_view = require("codereview.ui.diff_view")
+  diff_view.refresh_notes()
+  require("codereview.ui.explorer.view").render()
 end
 
 -- Close the layout and clean up

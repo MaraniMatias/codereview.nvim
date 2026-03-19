@@ -1,5 +1,6 @@
 local M = {}
 local store = require("codereview.notes.store")
+local config = require("codereview.config")
 
 -- Currently open float context
 local float_ctx = nil
@@ -7,6 +8,8 @@ local float_ctx = nil
 local closing = false
 
 -- Ask user whether to save or discard the current note (callable externally)
+-- N05: uses vim.ui.select instead of vim.fn.confirm to avoid blocking in
+-- GUI frontends (firenvim, neovide, etc.)
 function M.ask_save_or_discard()
   if not float_ctx then return end
   local ctx = float_ctx
@@ -16,13 +19,14 @@ function M.ask_save_or_discard()
     M.close()
     return
   end
-  local choice = vim.fn.confirm("Save note?", "&Yes\n&No\n&Cancel", 1)
-  if choice == 1 then
-    M.confirm()
-  elseif choice == 2 then
-    M.close()
-  end
-  -- 0 or 3 (Cancel): stay in float
+  vim.ui.select({ "Save", "Discard", "Cancel" }, { prompt = "Save note?" }, function(choice)
+    if choice == "Save" then
+      M.confirm()
+    elseif choice == "Discard" then
+      M.close()
+    end
+    -- nil or "Cancel": stay in float
+  end)
 end
 
 -- Open the note floating window
@@ -89,6 +93,9 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   vim.api.nvim_buf_set_lines(top_buf, 0, -1, false, top_lines)
   vim.api.nvim_set_option_value("modifiable", false, { buf = top_buf })
 
+  -- N04: use the plugin's configured border style instead of hardcoded "rounded"
+  local border = config.options.border or "rounded"
+
   -- Create top floating window (not focused)
   local top_win = vim.api.nvim_open_win(top_buf, false, {
     relative = "editor",
@@ -97,7 +104,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     row = top_row,
     col = col,
     style = "minimal",
-    border = "rounded",
+    border = border,
     title = top_title,
     title_pos = "center",
     focusable = false,
@@ -124,10 +131,10 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     row = bottom_row,
     col = col,
     style = "minimal",
-    border = "rounded",
+    border = border,
     title = note_title,
     title_pos = "center",
-    footer = " <C-s>/:w save  ·  <Esc> save?  ·  q discard ",
+    footer = " <C-s>/:w save  ·  <Esc> save?  ·  <C-d> delete  ·  q discard ",
     footer_pos = "center",
     zindex = 50,
   })
@@ -203,6 +210,22 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   -- q: discard without asking
   vim.keymap.set("n", "q", function()
     M.close()
+  end, opts)
+
+  -- N07: <C-d> to delete an existing note (clear content + save empty = delete)
+  vim.keymap.set({ "n", "i" }, "<C-d>", function()
+    vim.cmd("stopinsert")
+    if not float_ctx then return end
+    vim.ui.select({ "Delete", "Cancel" }, { prompt = "Delete this note?" }, function(choice)
+      if choice == "Delete" then
+        -- Clear the buffer and confirm — empty text triggers deletion in store
+        if float_ctx then
+          vim.api.nvim_set_option_value("modifiable", true, { buf = float_ctx.note_buf })
+          vim.api.nvim_buf_set_lines(float_ctx.note_buf, 0, -1, false, { "" })
+        end
+        M.confirm()
+      end
+    end)
   end, opts)
 
   -- :w also saves the note (buftype=acwrite intercepts the write command)

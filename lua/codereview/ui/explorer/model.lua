@@ -28,6 +28,14 @@ local STATUS_ICONS = {
 	R = "[R]", C = "[C]", U = "[U]",
 }
 
+-- Configurable note glyph — E15: ⊳ may not render in all terminal fonts.
+-- Fallback to ASCII ">" when config says so.
+local function note_glyph()
+	local g = config.options.note_glyph
+	if g and g ~= "" then return g end
+	return "⊳"
+end
+
 -- Split "dir/sub/file.lua" → dir="dir/sub/", name="file.lua".
 -- Paths with no slash return dir="", name=path.
 local function split_path(path)
@@ -56,13 +64,14 @@ local function note_rows(filepath, truncate_len)
 	local rows      = {}
 	local multiline = config.options.note_multiline
 
+	local glyph = note_glyph()
 	for _, note in ipairs(store.get_for_file(filepath)) do
 		local side       = note.side or "new"
 		local side_label = side == "old" and " (del)" or ""
 		local action     = { type = "note", filepath = filepath, line = note.line_start, side = side }
-		local prefix     = "    ⊳ L" .. note.line_start .. side_label .. ": "
-		-- Indent for continuation lines: aligns under the text, not the "⊳" glyph.
-		-- Fixed at 6 spaces ("    ⊳ ") so it doesn't shift with line-number width.
+		local prefix     = "    " .. glyph .. " L" .. note.line_start .. side_label .. ": "
+		-- Indent for continuation lines: aligns under the text, not the glyph.
+		-- Fixed at 6 spaces ("    X ") so it doesn't shift with line-number width.
 		local cont_indent = "      "
 
 		if multiline then
@@ -99,10 +108,13 @@ end
 -- ---------------------------------------------------------------------------
 
 local function build_flat(files, current_file_idx)
-	local lines         = {}
+	local lines           = {}
 	local actions_by_line = {}
-	local dim_by_line   = {}
-	local truncate_len  = config.options.note_truncate_len
+	local dim_by_line     = {}
+	-- E01: track where note_marker/binary_tag start so we can highlight them
+	-- separately instead of letting them fall inside the dim region.
+	local tag_ranges      = {}  -- lnum → { col_start, col_end }[]
+	local truncate_len    = config.options.note_truncate_len
 
 	local total  = #files
 	local header = total > 0
@@ -110,8 +122,18 @@ local function build_flat(files, current_file_idx)
 		or  "CodeReview  (? help)"
 	table.insert(lines, header)
 
+	-- E14: empty state message when there are no files
+	if total == 0 then
+		table.insert(lines, "")
+		table.insert(lines, "  No files changed")
+		return { lines = lines, actions_by_line = actions_by_line, dim_by_line = dim_by_line, tag_ranges = tag_ranges }
+	end
+
 	for idx, file in ipairs(files) do
 		local status_icon = STATUS_ICONS[file.status] or "[?]"
+		-- E04: use a fixed-width marker so alignment is stable regardless
+		-- of whether ▶ is multibyte.  "▶ " vs "  " both occupy 2 cells,
+		-- but we pad with strdisplaywidth to be safe.
 		local marker      = (idx == current_file_idx) and "▶ " or "  "
 		local note_count  = store.count_for_file(file.path)
 		local note_marker = note_count > 0 and ("  (" .. note_count .. ")") or ""
@@ -131,16 +153,40 @@ local function build_flat(files, current_file_idx)
 
 		-- Prefix before the dimmed region: "▶ [M]  foo.lua"
 		local prefix = marker .. status_icon .. "  " .. name
-		local dim_part = dir and (dir ~= "" and ("  " .. dir) or "") or ""
 
+		-- E03: root files (dir == "") get a dim "./" indicator
+		local dir_display = dir
+		if dir ~= nil and dir == "" then
+			dir_display = "./"
+		end
+
+		local dim_part = dir_display and (dir_display ~= "" and ("  " .. dir_display) or "") or ""
+
+		-- Build line: prefix + dim_part + tags (note_marker, binary_tag come AFTER dim)
 		local full_line = prefix .. dim_part .. note_marker .. binary_tag
 		table.insert(lines, full_line)
 		actions_by_line[#lines] = { type = "file", idx = idx }
 
 		-- Track where the dim region starts (byte offset, 0-indexed for nvim highlight API)
-		if dir and dir ~= "" then
-			-- +2 for the "  " separator before dir
-			dim_by_line[#lines] = math.max(0, #prefix + 2)
+		-- E01 fix: dim only covers the dir portion, NOT the trailing tags.
+		if dir_display and dir_display ~= "" then
+			local dim_start = #prefix  -- byte where "  dir/" starts (0-indexed == byte count)
+			local dim_end   = #prefix + #dim_part  -- byte where dir portion ends
+			dim_by_line[#lines] = { col_start = math.max(0, dim_start), col_end = dim_end }
+		end
+
+		-- E01: record tag positions so view.lua can highlight them with main color
+		if note_marker ~= "" or binary_tag ~= "" then
+			local tag_start = #prefix + #dim_part
+			local ranges = {}
+			if note_marker ~= "" then
+				table.insert(ranges, { col_start = tag_start, col_end = tag_start + #note_marker })
+				tag_start = tag_start + #note_marker
+			end
+			if binary_tag ~= "" then
+				table.insert(ranges, { col_start = tag_start, col_end = tag_start + #binary_tag })
+			end
+			tag_ranges[#lines] = ranges
 		end
 
 		if file.expanded then
@@ -151,7 +197,7 @@ local function build_flat(files, current_file_idx)
 		end
 	end
 
-	return { lines = lines, actions_by_line = actions_by_line, dim_by_line = dim_by_line }
+	return { lines = lines, actions_by_line = actions_by_line, dim_by_line = dim_by_line, tag_ranges = tag_ranges }
 end
 
 -- ---------------------------------------------------------------------------
@@ -175,6 +221,13 @@ local function build_tree(files, current_file_idx)
 		or  "CodeReview  (? help)"
 	table.insert(lines, header)
 
+	-- E14: empty state message when there are no files
+	if total == 0 then
+		table.insert(lines, "")
+		table.insert(lines, "  No files changed")
+		return { lines = lines, actions_by_line = actions_by_line, dim_by_line = {} }
+	end
+
 	-- Group files by directory, preserving insertion order.
 	local dir_order = {}
 	local by_dir    = {}
@@ -190,7 +243,8 @@ local function build_tree(files, current_file_idx)
 
 	for _, dir in ipairs(dir_order) do
 		-- Directory header row (no action — not selectable)
-		local dir_label = dir ~= "" and dir or "(root)"
+		-- E08: use "./" instead of "(root)" to avoid ambiguity
+		local dir_label = dir ~= "" and dir or "./"
 		table.insert(lines, dir_label)
 		-- actions_by_line[#lines] stays nil intentionally
 

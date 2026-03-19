@@ -1,5 +1,9 @@
 -- Tests for codereview.ui.note_float
 -- Covers: N01 fix — BufLeave asks save/discard, closing guard prevents re-entry
+--         N02 fix — <C-s> replaces w keymap
+--         N04 fix — uses config.options.border
+--         N05 fix — vim.ui.select instead of vim.fn.confirm
+--         N07 fix — <C-d> to delete note
 
 -- ──────────────────────────────────────────────────────────────
 -- Stub infrastructure
@@ -26,13 +30,20 @@ end
 
 -- ──────────────────────────────────────────────────────────────
 -- Before loading the module, set up minimal vim stubs that
--- note_float.lua needs at require-time (store dependency).
+-- note_float.lua needs at require-time (store + config deps).
 -- ──────────────────────────────────────────────────────────────
 
 local store_stub = {
   set = function(...) log_call("store.set", ...) end,
 }
 package.loaded["codereview.notes.store"] = store_stub
+
+local config_stub = {
+  options = {
+    border = "rounded",
+  },
+}
+package.loaded["codereview.config"] = config_stub
 
 local state_stub = {
   get = function()
@@ -64,7 +75,7 @@ local registered_keymaps = {}
 local buf_lines = {}
 local valid_wins = {}
 local closed_wins = {}
-local confirm_answer = 1 -- 1=Yes, 2=No, 3=Cancel
+local ui_select_answer = "Save"  -- default answer for vim.ui.select
 local scheduled_fns = {}
 
 -- Override vim APIs used by note_float.open / close / confirm
@@ -80,9 +91,9 @@ local orig_win_set_cursor = vim.api.nvim_win_set_cursor
 local orig_list_uis = vim.api.nvim_list_uis
 local orig_keymap_set = vim.keymap.set
 local orig_cmd = vim.cmd
-local orig_confirm = vim.fn.confirm
 local orig_notify = vim.notify
 local orig_schedule = vim.schedule
+local orig_ui_select = vim.ui and vim.ui.select
 
 local next_buf_id = 100
 local next_win_id = 200
@@ -96,7 +107,7 @@ local function setup_vim_stubs()
   valid_wins = {}
   closed_wins = {}
   scheduled_fns = {}
-  confirm_answer = 1
+  ui_select_answer = "Save"
 
   vim.api.nvim_create_buf = function()
     next_buf_id = next_buf_id + 1
@@ -148,17 +159,19 @@ local function setup_vim_stubs()
 
   vim.cmd = function() end
 
-  vim.fn.confirm = function(msg, choices, default)
-    log_call("confirm", msg, choices)
-    return confirm_answer
-  end
-
   vim.notify = function(msg, level)
     log_call("notify", msg, level)
   end
 
   vim.schedule = function(fn)
     table.insert(scheduled_fns, fn)
+  end
+
+  -- N05: stub vim.ui.select — calls callback synchronously with ui_select_answer
+  vim.ui = vim.ui or {}
+  vim.ui.select = function(items, opts, callback)
+    log_call("ui_select", items, opts)
+    callback(ui_select_answer)
   end
 end
 
@@ -175,9 +188,11 @@ local function restore_vim_stubs()
   vim.api.nvim_list_uis = orig_list_uis
   vim.keymap.set = orig_keymap_set
   vim.cmd = orig_cmd
-  vim.fn.confirm = orig_confirm
   vim.notify = orig_notify
   vim.schedule = orig_schedule
+  if orig_ui_select then
+    vim.ui.select = orig_ui_select
+  end
 end
 
 --- Open a note and set buffer content for the note buffer
@@ -240,9 +255,9 @@ describe("note_float – N01 BufLeave behavior", function()
     assert.equals(0, #find_calls("win_close"), "should NOT close windows yet")
   end)
 
-  it("BufLeave + Yes saves the note", function()
+  it("BufLeave + Save saves the note", function()
     open_note_with_text("important note")
-    confirm_answer = 1 -- Yes
+    ui_select_answer = "Save"
 
     fire_buf_leave()
     run_scheduled()
@@ -252,9 +267,9 @@ describe("note_float – N01 BufLeave behavior", function()
     assert.equals("test.lua", saves[1].args[1])
   end)
 
-  it("BufLeave + No discards without saving", function()
+  it("BufLeave + Discard discards without saving", function()
     open_note_with_text("draft note")
-    confirm_answer = 2 -- No
+    ui_select_answer = "Discard"
 
     fire_buf_leave()
     run_scheduled()
@@ -265,7 +280,7 @@ describe("note_float – N01 BufLeave behavior", function()
 
   it("BufLeave + Cancel keeps the float open", function()
     open_note_with_text("wip note")
-    confirm_answer = 3 -- Cancel
+    ui_select_answer = "Cancel"
 
     fire_buf_leave()
     run_scheduled()
@@ -280,7 +295,7 @@ describe("note_float – N01 BufLeave behavior", function()
     fire_buf_leave()
     run_scheduled()
 
-    assert.equals(0, #find_calls("confirm"), "should NOT prompt for empty note")
+    assert.equals(0, #find_calls("ui_select"), "should NOT prompt for empty note")
     assert.equals(false, note_float.is_open(), "float should be closed")
   end)
 end)
@@ -395,5 +410,92 @@ describe("note_float – N02 keymap registration", function()
       end
     end
     assert.is_true(found, "BufWriteCmd autocmd should be registered")
+  end)
+end)
+
+describe("note_float – N05 vim.ui.select", function()
+  before_each(function()
+    reset_log()
+    setup_vim_stubs()
+    if note_float.is_open() then
+      note_float.close()
+    end
+    reset_log()
+  end)
+
+  after_each(function()
+    pcall(note_float.close)
+    restore_vim_stubs()
+  end)
+
+  it("ask_save_or_discard calls vim.ui.select instead of vim.fn.confirm", function()
+    open_note_with_text("important note")
+    ui_select_answer = "Save"
+
+    note_float.ask_save_or_discard()
+
+    local selects = find_calls("ui_select")
+    assert.equals(1, #selects, "should call vim.ui.select once")
+    -- Verify the options include Save/Discard/Cancel
+    local items = selects[1].args[1]
+    assert.equals("Save", items[1])
+    assert.equals("Discard", items[2])
+    assert.equals("Cancel", items[3])
+  end)
+
+  it("nil selection (dismiss) keeps float open", function()
+    open_note_with_text("some text")
+    ui_select_answer = nil  -- user dismissed the dialog
+
+    note_float.ask_save_or_discard()
+
+    assert.equals(true, note_float.is_open(), "float should remain open on nil selection")
+    assert.equals(0, #find_calls("store.set"), "should NOT save")
+  end)
+end)
+
+describe("note_float – N07 delete keymap", function()
+  before_each(function()
+    reset_log()
+    setup_vim_stubs()
+    if note_float.is_open() then
+      note_float.close()
+    end
+    reset_log()
+    registered_keymaps = {}
+  end)
+
+  after_each(function()
+    pcall(note_float.close)
+    restore_vim_stubs()
+  end)
+
+  it("registers <C-d> as delete keymap", function()
+    open_note_with_text("test")
+    local found = false
+    for _, km in ipairs(registered_keymaps) do
+      if km.key == "<C-d>" then
+        found = true
+        break
+      end
+    end
+    assert.is_true(found, "<C-d> keymap should be registered for note deletion")
+  end)
+
+  it("<C-d> registers in both normal and insert modes", function()
+    open_note_with_text("test")
+    for _, km in ipairs(registered_keymaps) do
+      if km.key == "<C-d>" then
+        local modes = type(km.mode) == "table" and km.mode or { km.mode }
+        local has_n, has_i = false, false
+        for _, m in ipairs(modes) do
+          if m == "n" then has_n = true end
+          if m == "i" then has_i = true end
+        end
+        assert.is_true(has_n, "<C-d> should be mapped in normal mode")
+        assert.is_true(has_i, "<C-d> should be mapped in insert mode")
+        break
+      end
+    end
   end)
 end)

@@ -513,6 +513,12 @@ function M._get_diff_for_file(file, callback)
   end
 end
 
+-- D04: Known limitation — diff lines have a 1-byte prefix (+/-/space) that shifts
+-- code by one column.  Treesitter parses the buffer as-is, so highlights on the
+-- first column of each line may be slightly off.  A proper fix would require
+-- offset-aware highlighting (stripping the prefix before parsing), which is
+-- complex and outside the scope of the current codebase.  Documenting here for
+-- future reference.
 function M._update_treesitter(buf, filepath, visible_until)
   local desired_lang = nil
   if filepath and visible_until > 0 and visible_until <= treesitter_max_lines then
@@ -590,8 +596,14 @@ function M.load_more()
     -- In split mode, also check old side
     if is_split_mode() then
       local display_old = diff_state.get_old()
-      if not display_old.is_truncated then return end
+      if not display_old.is_truncated then
+        -- D07: notify user that diff is fully loaded
+        vim.api.nvim_echo({ { "CodeReview: diff fully loaded", "Comment" } }, false, {})
+        return
+      end
     else
+      -- D07: notify user that diff is fully loaded
+      vim.api.nvim_echo({ { "CodeReview: diff fully loaded", "Comment" } }, false, {})
       return
     end
   end
@@ -616,6 +628,9 @@ function M.jump_to_line(new_lnum)
     return
   end
 
+  -- D08 fix: use all_new_to_display to find the target and expand pagination,
+  -- then re-read display and use new_to_display consistently for the final
+  -- cursor position.  This avoids inconsistencies between the two maps.
   local target_display = display.all_new_to_display[new_lnum] or find_best_display_line(display.all_new_to_display, new_lnum)
   if not target_display then
     diff_state.set_pending_jump(nil)
@@ -624,9 +639,13 @@ function M.jump_to_line(new_lnum)
 
   ensure_display_line_visible(target_display, { preserve_cursor = true })
 
+  -- Re-read after potential pagination expansion
   display = diff_state.get()
+  -- Use new_to_display (visible subset) for final position; fall back to
+  -- all_new_to_display clamped to visible range for robustness.
   local best_line = display.new_to_display[new_lnum] or find_best_display_line(display.new_to_display, new_lnum)
   if not best_line then
+    -- Fallback: clamp the all_ target to visible line count
     best_line = math.min(target_display, math.max(1, #display.lines))
   end
 
@@ -829,7 +848,37 @@ function M._open_file_in_tab(jump_to_line)
 
   local full_path = s.root .. "/" .. file.path
   if vim.fn.filereadable(full_path) ~= 1 then
-    vim.notify("codereview: file not found: " .. file.path, vim.log.levels.WARN)
+    -- D12: for deleted files, offer to view the version from the commit
+    if file.status == "D" then
+      local ref = s.diff_args and s.diff_args[1] or "HEAD"
+      local cmd = "git show " .. ref .. ":" .. file.path
+      vim.api.nvim_echo(
+        { { "CodeReview: file deleted on disk. Opening from " .. ref .. "…", "WarningMsg" } },
+        false, {}
+      )
+      vim.cmd("tabnew")
+      local buf = vim.api.nvim_get_current_buf()
+      vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
+      vim.api.nvim_buf_set_name(buf, file.path .. " (" .. ref .. ")")
+      local output = vim.fn.systemlist(cmd)
+      if vim.v.shell_error == 0 then
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, output)
+        -- Try to set filetype from extension
+        local ext = file.path:match("%.([^%.]+)$")
+        if ext then
+          local ft = vim.filetype.match({ filename = file.path }) or ext
+          pcall(vim.api.nvim_set_option_value, "filetype", ft, { buf = buf })
+        end
+      else
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Failed to load file from " .. ref })
+      end
+      vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+      return
+    end
+    vim.api.nvim_echo(
+      { { "CodeReview: file not found: " .. file.path, "WarningMsg" } },
+      false, {}
+    )
     return
   end
 
@@ -964,6 +1013,26 @@ function M.setup_keymaps(buf)
       local display = diff_state.get()
       local first_type = display.line_type_map[vstart]
       side = (first_type == "del") and "old" or "new"
+
+      -- D13: detect mixed selection (crossing add + del lines) and warn
+      local has_mixed = false
+      for dl = vstart, vend do
+        local lt = display.line_type_map[dl]
+        if lt then
+          local line_side = (lt == "del") and "old" or "new"
+          if line_side ~= side then
+            has_mixed = true
+            break
+          end
+        end
+      end
+      if has_mixed then
+        vim.api.nvim_echo(
+          { { "CodeReview: selection crosses add/del boundary — using '" .. side .. "' side only", "WarningMsg" } },
+          false, {}
+        )
+      end
+
       if side == "old" then
         lnum_start = display.old_line_map[vstart]
         lnum_end = display.old_line_map[vend]

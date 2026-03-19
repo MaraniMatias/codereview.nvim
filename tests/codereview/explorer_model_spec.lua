@@ -20,7 +20,7 @@ describe("explorer model – header", function()
     orig_count = store.count_for_file
     orig_get   = store.get_for_file
     orig_opts  = config.options
-    config.options = { note_truncate_len = 30 }
+    config.options = { note_truncate_len = 30, note_glyph = "⊳" }
     store.count_for_file = function() return 0 end
     store.get_for_file   = function() return {} end
   end)
@@ -64,7 +64,7 @@ describe("explorer model – actions_by_line", function()
     orig_count = store.count_for_file
     orig_get   = store.get_for_file
     orig_opts  = config.options
-    config.options = { note_truncate_len = 30 }
+    config.options = { note_truncate_len = 30, note_glyph = "⊳" }
     store.count_for_file = function() return 0 end
     store.get_for_file   = function() return {} end
   end)
@@ -160,7 +160,7 @@ describe("explorer model – E02 dim_col guard", function()
     orig_count = store.count_for_file
     orig_get   = store.get_for_file
     orig_opts  = config.options
-    config.options = { note_truncate_len = 30, explorer_layout = "flat" }
+    config.options = { note_truncate_len = 30, explorer_layout = "flat", note_glyph = "⊳" }
     store.count_for_file = function() return 0 end
     store.get_for_file   = function() return {} end
   end)
@@ -171,19 +171,29 @@ describe("explorer model – E02 dim_col guard", function()
     config.options       = orig_opts
   end)
 
-  it("dim_by_line is never negative for short filenames", function()
+  it("dim_by_line col_start is never negative for short filenames", function()
     -- Single-char filename in a directory
     local files = { make_file("d/x", "M") }
     local result = model.build(files, 1)
-    for lnum, col in pairs(result.dim_by_line) do
-      assert.is_true(col >= 0, "dim_col at line " .. lnum .. " is negative: " .. col)
+    for lnum, dim in pairs(result.dim_by_line) do
+      assert.is_true(dim.col_start >= 0,
+        "dim col_start at line " .. lnum .. " is negative: " .. dim.col_start)
+      assert.is_true(dim.col_end >= dim.col_start,
+        "dim col_end < col_start at line " .. lnum)
     end
   end)
 
-  it("dim_by_line is absent for root files (no directory)", function()
+  it("dim_by_line for root files shows './' indicator (E03)", function()
     local files = { make_file("x", "M") }
     local result = model.build(files, 1)
-    -- Root file has no dir, so no dim entry
-    assert.is_nil(result.dim_by_line[2])
+    -- E03: root files now get a "./" dim entry
+    local dim = result.dim_by_line[2]
+    assert.is_not_nil(dim, "root file should have a dim entry for './'")
+    assert.is_true(dim.col_start >= 0)
+    assert.is_true(dim.col_end > dim.col_start)
+    -- The dim portion should contain "./"
+    local line = result.lines[2]
+    local dim_text = line:sub(dim.col_start + 1, dim.col_end)
+    assert.truthy(dim_text:find("%./"), "dim region should contain './'")
   end)
 end)
