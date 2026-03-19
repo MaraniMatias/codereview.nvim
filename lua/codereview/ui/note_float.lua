@@ -127,7 +127,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     border = "rounded",
     title = note_title,
     title_pos = "center",
-    footer = " w save  ·  <Esc> save?  ·  q discard ",
+    footer = " <C-s>/:w save  ·  <Esc> save?  ·  q discard ",
     footer_pos = "center",
     zindex = 50,
   })
@@ -183,8 +183,9 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   -- Keymaps (on note buffer only)
   local opts = { noremap = true, silent = true, buffer = note_buf }
 
-  -- Save with w (like :w in vim), normal mode only
-  vim.keymap.set("n", "w", function()
+  -- Save with <C-s> (both normal and insert mode) — does not steal w motion (N02 fix)
+  vim.keymap.set({ "n", "i" }, "<C-s>", function()
+    vim.cmd("stopinsert")
     M.confirm()
   end, opts)
 
@@ -203,6 +204,14 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   vim.keymap.set("n", "q", function()
     M.close()
   end, opts)
+
+  -- :w also saves the note (buftype=acwrite intercepts the write command)
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = note_buf,
+    callback = function()
+      M.confirm()
+    end,
+  })
 
   -- Autocmd to handle buffer leave — ask save/discard instead of silent close
   vim.api.nvim_create_autocmd("BufLeave", {

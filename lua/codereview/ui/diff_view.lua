@@ -32,9 +32,10 @@ local function update_diff_title(file)
   if is_split_mode() then
     local old_win = s.windows.diff_old
     local new_win = s.windows.diff_new
+    local old_title_path = (file.old_path and file.old_path ~= "") and file.old_path or file.path
     if old_win and vim.api.nvim_win_is_valid(old_win) then
       pcall(vim.api.nvim_win_set_config, old_win, {
-        title = " old: " .. file.path .. " ",
+        title = " old: " .. old_title_path .. " ",
         title_pos = "center",
       })
     end
@@ -396,6 +397,22 @@ function M.show_file(idx)
   s.current_file_idx = idx
   diff_request_id = diff_request_id + 1
   local request_id = diff_request_id
+
+  -- Stop treesitter on all diff buffers before replacing content to prevent
+  -- stale treesitter callbacks from the previous file (D10 race condition).
+  if is_split_mode() then
+    if s.buffers.diff_old then
+      pcall(vim.treesitter.stop, s.buffers.diff_old)
+      _ts_lang_cache[s.buffers.diff_old] = nil
+    end
+    if s.buffers.diff_new then
+      pcall(vim.treesitter.stop, s.buffers.diff_new)
+      _ts_lang_cache[s.buffers.diff_new] = nil
+    end
+  else
+    pcall(vim.treesitter.stop, primary_buf)
+    _ts_lang_cache[primary_buf] = nil
+  end
 
   reset_display()
   set_placeholder({ "  (loading diff...)" })
@@ -1061,9 +1078,21 @@ function M._jump_note(direction)
   local display = diff_state.get()
   local notes = store.get_for_file(file.path)
 
-  -- Get current display position for comparison
+  -- Get current display position for comparison.
+  -- In split mode, use the actual current window so next/prev note works
+  -- correctly regardless of which panel (old/new) has focus (D11 fix).
   local current_display_pos = 0
-  local active_win = is_split_mode() and s.windows.diff_new or s.windows.diff
+  local active_win
+  if is_split_mode() then
+    local cur = vim.api.nvim_get_current_win()
+    if cur == s.windows.diff_old or cur == s.windows.diff_new then
+      active_win = cur
+    else
+      active_win = s.windows.diff_new
+    end
+  else
+    active_win = s.windows.diff
+  end
   if active_win and vim.api.nvim_win_is_valid(active_win) then
     current_display_pos = vim.api.nvim_win_get_cursor(active_win)[1]
   end

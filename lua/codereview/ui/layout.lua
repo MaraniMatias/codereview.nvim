@@ -131,6 +131,20 @@ local function compute_layout()
   local exp_w = cfg.explorer_width
   local h = total_h - 2  -- top + bottom border
 
+  -- Guard against terminals too narrow for the layout (L01).
+  -- In split mode we need at least explorer + 2 diff panels + borders.
+  local min_width = is_split_mode() and (exp_w + 2 + 20 + 2 + 20) or (exp_w + 2 + 24)
+  if total_w < min_width then
+    -- Auto-shrink explorer to fit; clamp at 10 columns minimum.
+    exp_w = math.max(10, total_w - (is_split_mode() and 44 or 26))
+    if total_w < (is_split_mode() and 54 or 36) then
+      vim.api.nvim_echo(
+        {{ "CodeReview: terminal too narrow (" .. total_w .. " cols). Layout may be broken.", "WarningMsg" }},
+        true, {}
+      )
+    end
+  end
+
   if is_split_mode() then
     -- 3-panel: explorer | diff_old | diff_new
     local diff_area_col = exp_w + 2
@@ -629,8 +643,18 @@ function M.close(force)
     -- call it AFTER qa (it is only reached if qa fails for some reason).
     -- In single-file difftool mode, use cq! (exit code 1) so git stops
     -- iterating over remaining files.
-    local exit_cmd = s.single_file_difftool and "cq!" or (force and "qa!" or "qa")
-    pcall(vim.cmd, exit_cmd)
+    if s.single_file_difftool then
+      pcall(vim.cmd, "cq!")
+    else
+      -- Try tabclose first to avoid discarding external buffers (L03 fix).
+      -- Only fall back to qa/qa! if we're on the last tab.
+      local tabs = vim.api.nvim_list_tabpages()
+      if #tabs > 1 then
+        pcall(vim.cmd, force and "tabclose!" or "tabclose")
+      else
+        pcall(vim.cmd, force and "qa!" or "qa")
+      end
+    end
     finalize_close(prev_win)
     return true
   end

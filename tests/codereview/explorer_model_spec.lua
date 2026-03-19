@@ -152,3 +152,38 @@ describe("explorer model – actions_by_line", function()
     assert.truthy(result.lines[2]:find("new.lua", 1, true))
   end)
 end)
+
+describe("explorer model – E02 dim_col guard", function()
+  local orig_count, orig_get, orig_opts
+
+  before_each(function()
+    orig_count = store.count_for_file
+    orig_get   = store.get_for_file
+    orig_opts  = config.options
+    config.options = { note_truncate_len = 30, explorer_layout = "flat" }
+    store.count_for_file = function() return 0 end
+    store.get_for_file   = function() return {} end
+  end)
+
+  after_each(function()
+    store.count_for_file = orig_count
+    store.get_for_file   = orig_get
+    config.options       = orig_opts
+  end)
+
+  it("dim_by_line is never negative for short filenames", function()
+    -- Single-char filename in a directory
+    local files = { make_file("d/x", "M") }
+    local result = model.build(files, 1)
+    for lnum, col in pairs(result.dim_by_line) do
+      assert.is_true(col >= 0, "dim_col at line " .. lnum .. " is negative: " .. col)
+    end
+  end)
+
+  it("dim_by_line is absent for root files (no directory)", function()
+    local files = { make_file("x", "M") }
+    local result = model.build(files, 1)
+    -- Root file has no dir, so no dim entry
+    assert.is_nil(result.dim_by_line[2])
+  end)
+end)

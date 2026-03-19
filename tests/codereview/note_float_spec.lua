@@ -343,3 +343,57 @@ describe("note_float – closing guard", function()
     vim.api.nvim_win_close = orig_stub_close
   end)
 end)
+
+describe("note_float – N02 keymap registration", function()
+  before_each(function()
+    reset_log()
+    setup_vim_stubs()
+    if note_float.is_open() then
+      note_float.close()
+    end
+    reset_log()
+    registered_keymaps = {}
+  end)
+
+  after_each(function()
+    pcall(note_float.close)
+    restore_vim_stubs()
+  end)
+
+  it("does NOT register 'w' as a normal-mode keymap", function()
+    open_note_with_text("test")
+    for _, km in ipairs(registered_keymaps) do
+      if km.key == "w" then
+        -- If mode is "n" or includes "n", that's the old bug
+        local modes = type(km.mode) == "table" and km.mode or { km.mode }
+        for _, m in ipairs(modes) do
+          assert.not_equals("n", m, "'w' should NOT be mapped in normal mode")
+        end
+      end
+    end
+  end)
+
+  it("registers <C-s> as save keymap", function()
+    open_note_with_text("test")
+    local found = false
+    for _, km in ipairs(registered_keymaps) do
+      if km.key == "<C-s>" then
+        found = true
+        break
+      end
+    end
+    assert.is_true(found, "<C-s> keymap should be registered")
+  end)
+
+  it("registers BufWriteCmd autocmd for :w support", function()
+    open_note_with_text("test")
+    local found = false
+    for _, ac in ipairs(registered_autocmds) do
+      if ac.event == "BufWriteCmd" then
+        found = true
+        break
+      end
+    end
+    assert.is_true(found, "BufWriteCmd autocmd should be registered")
+  end)
+end)

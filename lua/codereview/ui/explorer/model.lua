@@ -140,7 +140,7 @@ local function build_flat(files, current_file_idx)
 		-- Track where the dim region starts (byte offset, 0-indexed for nvim highlight API)
 		if dir and dir ~= "" then
 			-- +2 for the "  " separator before dir
-			dim_by_line[#lines] = #prefix + 2
+			dim_by_line[#lines] = math.max(0, #prefix + 2)
 		end
 
 		if file.expanded then
