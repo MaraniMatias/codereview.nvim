@@ -4,15 +4,10 @@ local state          = require("codereview.state")
 local explorer_state = require("codereview.ui.explorer.state")
 local model          = require("codereview.ui.explorer.model")
 local config         = require("codereview.config")
+local valid          = require("codereview.util.validate")
+local buf_util       = require("codereview.util.buf")
 
 local explorer_ns = vim.api.nvim_create_namespace("codereview_explorer")
-
-local function set_buffer_lines(buf, lines)
-  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_set_option_value("modified", false, { buf = buf })
-  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
-end
 
 function M.apply_highlights(buf, lines, actions_by_line, dim_by_line, tag_ranges)
   local es = explorer_state.get()
@@ -78,7 +73,7 @@ end
 function M.render()
   local s = state.get()
   local buf = s.buffers.explorer
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+  if not valid.buf(buf) then
     return
   end
 
@@ -86,7 +81,7 @@ function M.render()
   explorer_state.set_actions_by_line(rendered.actions_by_line)
   explorer_state.set_dim_by_line(rendered.dim_by_line)
   explorer_state.set_tag_ranges(rendered.tag_ranges)
-  set_buffer_lines(buf, rendered.lines)
+  buf_util.set_lines(buf, rendered.lines)
   M.apply_highlights(buf, rendered.lines, rendered.actions_by_line, rendered.dim_by_line, rendered.tag_ranges)
 
   return rendered
@@ -95,7 +90,7 @@ end
 function M.get_current_action()
   local s = state.get()
   local win = s.windows.explorer
-  if not win or not vim.api.nvim_win_is_valid(win) then
+  if not valid.win(win) then
     return nil
   end
 
@@ -107,7 +102,7 @@ function M.move_cursor_to_file(idx)
   local s = state.get()
   local win = s.windows.explorer
   local buf = s.buffers.explorer
-  if not win or not vim.api.nvim_win_is_valid(win) then
+  if not valid.win(win) then
     return
   end
 
@@ -132,7 +127,7 @@ function M.restore_cursor(cursor)
   if not cursor or not win or not buf then
     return
   end
-  if not vim.api.nvim_win_is_valid(win) or not vim.api.nvim_buf_is_valid(buf) then
+  if not valid.win(win) or not valid.buf(buf) then
     return
   end
 

@@ -1,6 +1,7 @@
 local M = {}
 local store = require("codereview.notes.store")
 local config = require("codereview.config")
+local valid = require("codereview.util.validate")
 
 -- Currently open float context
 local float_ctx = nil
@@ -175,7 +176,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     callback = function()
       if float_ctx and float_ctx.note_win == note_win then
         -- Close top window too if still valid
-        if vim.api.nvim_win_is_valid(top_win) then
+        if valid.win(top_win) then
           vim.api.nvim_win_close(top_win, true)
         end
         float_ctx = nil
@@ -189,7 +190,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     callback = function()
       if float_ctx and float_ctx.top_win == top_win then
         -- Close note window too if still valid
-        if vim.api.nvim_win_is_valid(note_win) then
+        if valid.win(note_win) then
           vim.api.nvim_win_close(note_win, true)
         end
         float_ctx = nil
@@ -280,7 +281,7 @@ function M.confirm()
   -- Close both floats
   float_ctx = nil
   for _, win in ipairs({ ctx.note_win, ctx.top_win }) do
-    if vim.api.nvim_win_is_valid(win) then
+    if valid.win(win) then
       vim.api.nvim_win_close(win, true)
     end
   end
@@ -301,7 +302,7 @@ function M.confirm()
   -- Mark buffers as modified so :wq triggers BufWriteCmd
   for _, buf_key in ipairs({ "diff", "explorer" }) do
     local buf = s.buffers[buf_key]
-    if buf and vim.api.nvim_buf_is_valid(buf) then
+    if valid.buf(buf) then
       pcall(function()
         vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
         vim.api.nvim_set_option_value("modified", true, { buf = buf })
@@ -326,7 +327,7 @@ end
 function M.is_open()
   return float_ctx ~= nil
     and float_ctx.note_win ~= nil
-    and vim.api.nvim_win_is_valid(float_ctx.note_win)
+    and valid.win(float_ctx.note_win)
 end
 
 -- Close without saving
@@ -336,7 +337,7 @@ function M.close()
   local ctx = float_ctx
   float_ctx = nil
   for _, win in ipairs({ ctx.note_win, ctx.top_win }) do
-    if vim.api.nvim_win_is_valid(win) then
+    if valid.win(win) then
       vim.api.nvim_win_close(win, true)
     end
   end

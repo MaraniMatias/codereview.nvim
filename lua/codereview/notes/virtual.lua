@@ -3,6 +3,7 @@ local state = require("codereview.state")
 local store = require("codereview.notes.store")
 local config = require("codereview.config")
 local diff_state = require("codereview.ui.diff_view.state")
+local valid = require("codereview.util.validate")
 
 -- Namespace for extmarks
 local ns_id = vim.api.nvim_create_namespace("codereview_notes")
@@ -33,7 +34,7 @@ end
 
 -- Set extmark for a note on a specific buffer line (0-indexed)
 function M.set_extmark(buf, lnum, note, extmark_id)
-  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+  if not valid.buf(buf) then return nil end
 
   local full_text = note.text or ""
   local is_old = (note.side or "new") == "old"
@@ -85,20 +86,20 @@ end
 
 -- Remove extmark for a note
 function M.del_extmark(buf, extmark_id)
-  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
   pcall(vim.api.nvim_buf_del_extmark, buf, ns_id, extmark_id)
 end
 
 -- Clear all extmarks from a buffer
 function M.clear_extmarks(buf)
   diff_state.clear_visible_extmarks(buf)
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
   vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 end
 
 -- display: diff view state with visible new_to_display and old_to_display mappings
 function M.render_notes(buf, filepath, display)
-  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
 
   display = display or {}
   local new_to_display = display.new_to_display or {}
@@ -149,7 +150,7 @@ end
 -- Render notes filtered by side (for split diff mode)
 -- Only renders notes whose side matches the given filter_side
 function M.render_notes_for_side(buf, filepath, display, filter_side)
-  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if not valid.buf(buf) then return end
 
   display = display or {}
   -- In split mode, the display's line_map maps to the side's own lnums

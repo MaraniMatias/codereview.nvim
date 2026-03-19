@@ -41,13 +41,15 @@ package.loaded["codereview.notes.store"] = store_stub
 local config_stub = {
   options = {
     border = "rounded",
+    diff_view = "unified",
   },
+  is_split_mode = function() return false end,
 }
 package.loaded["codereview.config"] = config_stub
 
 local state_stub = {
   get = function()
-    return { files = {}, buffers = {} }
+    return { files = {}, buffers = {}, windows = {} }
   end,
 }
 package.loaded["codereview.state"] = state_stub

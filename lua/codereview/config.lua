@@ -51,6 +51,10 @@ M.defaults = {
 
 M.options = vim.deepcopy(M.defaults)
 
+function M.is_split_mode()
+  return M.options.diff_view == "split"
+end
+
 -- Valid values for enum-like options
 local VALID_DIFF_VIEWS    = { unified = true, split = true }
 local VALID_BORDERS       = { rounded = true, single = true, double = true, solid = true, none = true }

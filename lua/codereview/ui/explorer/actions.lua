@@ -7,6 +7,7 @@ local layout = require("codereview.ui.layout")
 local note_float = require("codereview.ui.note_float")
 local explorer_state = require("codereview.ui.explorer.state")
 local view = require("codereview.ui.explorer.view")
+local valid = require("codereview.util.validate")
 
 local function action_key(action)
   if not action then
@@ -53,7 +54,7 @@ function M.select_file(idx)
 
   local win = s.windows.explorer
   local cursor = nil
-  if opts.preserve_cursor and win and vim.api.nvim_win_is_valid(win) then
+  if opts.preserve_cursor and valid.win(win) then
     cursor = vim.api.nvim_win_get_cursor(win)
   end
 

@@ -3,6 +3,7 @@ local M = {}
 local config = require("codereview.config")
 local state = require("codereview.state")
 local git = require("codereview.git")
+local valid = require("codereview.util.validate")
 local opening = false
 local open_gen = 0
 local refreshing = false
@@ -68,7 +69,7 @@ local function set_diff_message(message)
   diff_view.clear()
 
   local function set_msg(buf)
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+    if not valid.buf(buf) then return end
     virt.clear_extmarks(buf)
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { message })
