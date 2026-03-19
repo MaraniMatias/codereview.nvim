@@ -40,6 +40,9 @@ function M.setup(buf)
   vim.keymap.set("n", km.refresh, actions.refresh, opts)
   vim.keymap.set("n", km.quit, actions.quit, opts)
   vim.keymap.set("n", km.cycle_focus, actions.cycle_focus, opts)
+  if km.toggle_layout then
+    vim.keymap.set("n", km.toggle_layout, actions.toggle_layout, opts)
+  end
   if km.save then
     vim.keymap.set("n", km.save, actions.save, opts)
   end

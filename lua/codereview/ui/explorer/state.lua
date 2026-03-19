@@ -7,6 +7,7 @@ local function ensure_explorer_state()
   s.ui = s.ui or {}
   s.ui.explorer = s.ui.explorer or {
     actions_by_line = {},
+    dim_by_line = {},  -- lnum → byte offset where dimmed dir portion starts (flat layout)
     last_preview_key = nil,
   }
   return s.ui.explorer
@@ -18,6 +19,10 @@ end
 
 function M.set_actions_by_line(actions_by_line)
   ensure_explorer_state().actions_by_line = actions_by_line or {}
+end
+
+function M.set_dim_by_line(dim_by_line)
+  ensure_explorer_state().dim_by_line = dim_by_line or {}
 end
 
 function M.set_last_preview_key(key)

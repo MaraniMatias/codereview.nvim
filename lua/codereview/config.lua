@@ -9,6 +9,8 @@ M.defaults = {
 	explorer_title = " Files ",
 	diff_title = " Diff ",
 	note_truncate_len = 30, -- truncation of notes in explorer sub-items
+	explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
+	explorer_path_hl = "Comment", -- highlight group for the dimmed directory portion (flat mode)
 	virtual_text_truncate_len = 60, -- truncation of virtual text (eol preview)
 	virtual_text_max_lines = 3, -- extra lines shown below the code line (0 = eol only)
 	max_diff_lines = 1200, -- initial visible diff lines before truncation
@@ -30,6 +32,7 @@ M.defaults = {
 		go_to_file = "gf",
 		view_file = "gF",
 		toggle_hunk_fold = "za",
+		toggle_layout = "t", -- toggle between flat / tree explorer layout
 	},
 	review = {
 		default_filename = "review-%Y-%m-%d.md",
@@ -41,15 +44,17 @@ M.defaults = {
 M.options = vim.deepcopy(M.defaults)
 
 -- Valid values for enum-like options
-local VALID_DIFF_VIEWS = { unified = true, split = true }
-local VALID_BORDERS = { rounded = true, single = true, double = true, solid = true, none = true }
+local VALID_DIFF_VIEWS    = { unified = true, split = true }
+local VALID_BORDERS       = { rounded = true, single = true, double = true, solid = true, none = true }
+local VALID_EXPLORER_LAYOUTS = { flat = true, tree = true }
 
 -- Known keymap keys, to catch typos early
 local KNOWN_KEYMAP_KEYS = {
 	note = true, toggle_virtual_text = true, next_note = true, prev_note = true,
 	next_file = true, prev_file = true, cycle_focus = true, save = true,
 	notes_picker = true, quit = true, toggle_notes = true, refresh = true,
-	load_more_diff = true, go_to_file = true, view_file = true, toggle_hunk_fold = true,
+	load_more_diff = true, go_to_file = true, view_file = true,
+	toggle_hunk_fold = true, toggle_layout = true,
 }
 
 ---@param opts table
@@ -105,6 +110,16 @@ local function validate(opts)
 			opts.diff_page_size,
 			function(v) return v == nil or (type(v) == "number" and v > 0) end,
 			"expected a positive number",
+		},
+		explorer_layout = {
+			opts.explorer_layout,
+			function(v) return v == nil or VALID_EXPLORER_LAYOUTS[v] ~= nil end,
+			'expected "flat" or "tree"',
+		},
+		explorer_path_hl = {
+			opts.explorer_path_hl,
+			function(v) return v == nil or type(v) == "string" end,
+			"expected a string (highlight group name)",
 		},
 	})
 

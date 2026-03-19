@@ -202,6 +202,13 @@ function M.refresh()
   require("codereview").refresh()
 end
 
+function M.toggle_layout()
+  local cfg = require("codereview.config").options
+  cfg.explorer_layout = (cfg.explorer_layout == "tree") and "flat" or "tree"
+  view.render()
+  vim.api.nvim_echo({ { "CodeReview: layout → " .. cfg.explorer_layout, "Comment" } }, false, {})
+end
+
 function M.quit()
   if note_float.is_open() then
     note_float.ask_save_or_discard()
@@ -225,11 +232,12 @@ function M.show_help()
     " ──────────────────────────────",
     " Explorer",
     " <CR> / l      Open file in diff",
-    " h / " .. (km.toggle_notes or "za") .. "         Toggle notes",
+    " " .. (km.toggle_notes or "za") .. "             Toggle notes",
     " " .. (km.next_file or "]f") .. " / " .. (km.prev_file or "[f") .. "         Next / prev file",
     " " .. (km.refresh or "R") .. "             Refresh",
     " " .. (km.quit or "q") .. "             Quit",
     " " .. (km.cycle_focus or "<Tab>") .. "          Cycle focus",
+    " " .. (km.toggle_layout or "t") .. "             Toggle flat / tree",
     " ?             This help",
     " ──────────────────────────────",
     " Diff view",

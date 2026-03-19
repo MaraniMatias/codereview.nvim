@@ -13,7 +13,7 @@ Inline code review on any `git diff`, right inside Neovim.
 
 **Inline notes** — Smart add/edit on any diff line, visual-selection notes with captured code context, virtual text with visibility toggle, Telescope picker for all notes.
 
-**Navigation** — File explorer with badges and note counts, `]n`/`[n` and `]f`/`[f` bracket motions, `?` help window with all keymaps.
+**Navigation** — File explorer with badges and note counts, `]n`/`[n` and `]f`/`[f` bracket motions, `?` help window with all keymaps. Two explorer layouts: **flat** (filename first, directory dimmed) and **tree** (files grouped by directory), toggled with `t`.
 
 **Safety** — Unsaved-note protection on close, large diff pagination with configurable thresholds.
 
@@ -140,9 +140,9 @@ All keybindings are remappable via `keymaps` in your setup config.
 | ------------- | ---------------------------------------------- |
 | `j` / `k`     | Navigate files and note entries                |
 | `Enter` / `l` | Focus the diff panel for the selected item     |
-| `h`           | Toggle notes for the selected file             |
 | `za`          | Expand or collapse notes for the selected file |
 | `]f` / `[f`   | Next or previous file                          |
+| `t`           | Toggle flat / tree layout                      |
 | `R`           | Refresh file list                              |
 | `<Tab>`       | Focus diff panel                               |
 | `?`           | Show help window                               |
@@ -199,6 +199,8 @@ require("codereview").setup({
   virtual_text_truncate_len = 60,   -- truncation of virtual text annotations
   max_diff_lines = 1200,            -- initial visible diff lines before truncation
   diff_page_size = 400,             -- extra lines revealed per load-more action
+  explorer_layout = "flat",         -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
+  explorer_path_hl = "Comment",     -- highlight group for the dimmed directory portion (flat layout)
 
   keymaps = {
     note = "n",                     -- smart add/edit note on current line
@@ -212,6 +214,7 @@ require("codereview").setup({
     notes_picker = "<Space>n",
     quit = "q",
     toggle_notes = "za",
+    toggle_layout = "t",            -- toggle between flat / tree explorer layout
     refresh = "R",
     load_more_diff = "L",
     go_to_file = "gf",              -- open file in new tab at cursor line
