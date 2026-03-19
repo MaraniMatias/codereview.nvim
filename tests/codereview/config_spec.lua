@@ -110,4 +110,27 @@ describe("config", function()
     assert.equals(3, config.options.review.context_lines)
     assert.equals("/tmp", config.options.review.path)
   end)
+
+  it("default export_format is 'inline'", function()
+    config.setup({})
+    assert.equals("inline", config.options.review.export_format)
+  end)
+
+  it("accepts valid export_format values", function()
+    for _, fmt in ipairs({ "inline", "compact", "block" }) do
+      config.setup({ review = { export_format = fmt } })
+      assert.equals(fmt, config.options.review.export_format)
+    end
+  end)
+
+  it("rejects invalid export_format value", function()
+    local notified = false
+    local orig = vim.notify
+    vim.notify = function(msg, level)
+      if level == vim.log.levels.ERROR then notified = true end
+    end
+    config.setup({ review = { export_format = "bad_format" } })
+    vim.notify = orig
+    assert.is_true(notified)
+  end)
 end)

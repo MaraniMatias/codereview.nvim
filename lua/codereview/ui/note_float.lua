@@ -240,10 +240,12 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     M.ask_save_or_discard()
   end, opts)
 
-  -- Autocmd to handle buffer leave — ask save/discard instead of silent close
+  -- Autocmd to handle buffer leave — ask save/discard instead of silent close.
+  -- NOTE: intentionally NOT once=true so that if the user cancels the prompt
+  -- (Esc) and then navigates away again, they get another chance to save.
+  -- The guards (float_ctx, closing, asking) prevent double-firing.
   vim.api.nvim_create_autocmd("BufLeave", {
     buffer = note_buf,
-    once = true,
     callback = function()
       if float_ctx and not closing then
         vim.schedule(M.ask_save_or_discard)

@@ -181,6 +181,13 @@ local function get_initial_visible_until(all_line_types, max_diff_lines)
     visible_until = visible_until - 1
   end
 
+  -- If the backward walk shrunk the window below 50% of the configured limit,
+  -- fall back to the raw max so we always show at least max_diff_lines lines
+  -- rather than silently showing almost nothing when max_diff_lines is small.
+  if visible_until < math.max(1, math.floor(max_diff_lines / 2)) then
+    visible_until = max_diff_lines
+  end
+
   return math.max(1, visible_until)
 end
 

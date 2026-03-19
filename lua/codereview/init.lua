@@ -169,6 +169,8 @@ function M.open(args)
   open_gen = open_gen + 1
   local my_gen = open_gen
 
+  vim.notify("codereview: scanning...", vim.log.levels.INFO)
+
   -- Safety timeout: auto-unlock if the async callback chain never completes.
   vim.defer_fn(function()
     if opening and open_gen == my_gen then
@@ -414,10 +416,11 @@ function M.refresh()
   elseif s.mode == "difftool" and s.local_dir and s.remote_dir then
     git.scan_dir_diff(s.local_dir, s.remote_dir, apply_refresh)
   else
+    -- Single-file difftool: no re-scan possible, just re-render
     refreshing = false
     explorer.render()
     diff_view.show_file(s.current_file_idx)
-    vim.notify("codereview: refreshed", vim.log.levels.INFO)
+    vim.notify("codereview: refreshed (single-file mode — no re-scan)", vim.log.levels.INFO)
   end
 end
 
