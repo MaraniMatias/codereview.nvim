@@ -10,7 +10,7 @@ local diff_ns = vim.api.nvim_create_namespace("codereview_diff")
 local diff_old_ns = vim.api.nvim_create_namespace("codereview_diff_old")
 local diff_request_id = 0
 local _loading_idx = nil   -- tracks which file idx is currently being loaded
--- D05: treesitter_max_lines is now configurable via config.options.treesitter_max_lines
+-- treesitter_max_lines is now configurable via config.options.treesitter_max_lines
 local _ts_lang_cache = {}   -- buf -> lang string | false
 local _hl_cache = {}        -- buf -> hash key string
 
@@ -26,7 +26,7 @@ local function is_split_mode()
   return config.options.diff_view == "split"
 end
 
--- D09: center placeholder messages in the diff panel instead of hardcoded padding
+-- center placeholder messages in the diff panel instead of hardcoded padding
 local function placeholder_line(msg)
   local s = state.get()
   local width
@@ -528,7 +528,7 @@ function M._get_diff_for_file(file, callback)
   end
 end
 
--- D04: Known limitation — diff lines have a 1-byte prefix (+/-/space) that shifts
+-- Known limitation — diff lines have a 1-byte prefix (+/-/space) that shifts
 -- code by one column.  Treesitter parses the buffer as-is, so highlights on the
 -- first column of each line may be slightly off.  A proper fix would require
 -- offset-aware highlighting (stripping the prefix before parsing), which is
@@ -564,7 +564,7 @@ function M._update_treesitter(buf, filepath, visible_until)
   end
 end
 
--- D06: monotonic counter as salt to avoid hash collisions between different
+-- monotonic counter as salt to avoid hash collisions between different
 -- diffs that happen to produce the same djb2 hash.
 local _hash_salt = 0
 
@@ -618,12 +618,12 @@ function M.load_more()
     if is_split_mode() then
       local display_old = diff_state.get_old()
       if not display_old.is_truncated then
-        -- D07: notify user that diff is fully loaded
+        -- notify user that diff is fully loaded
         vim.api.nvim_echo({ { "CodeReview: diff fully loaded", "Comment" } }, false, {})
         return
       end
     else
-      -- D07: notify user that diff is fully loaded
+      -- notify user that diff is fully loaded
       vim.api.nvim_echo({ { "CodeReview: diff fully loaded", "Comment" } }, false, {})
       return
     end
@@ -700,7 +700,7 @@ function M.get_current_lnum()
   return display.line_map[cursor[1]]
 end
 
--- D03: extract code context by iterating over all_lines sequentially instead
+-- extract code context by iterating over all_lines sequentially instead
 -- of using pairs() on line_map (non-deterministic order, unnecessary sort).
 local function _extract_code_context(line_start, line_end, line_map, all_lines)
   line_end = line_end or line_start
@@ -755,7 +755,7 @@ function M.get_current_line_info()
       local lnum = display_old.line_map[display_lnum]
       if lnum then
         local ltype = display_old.line_type_map[display_lnum] or "ctx"
-        -- D02: old-side panel always reports side="old" regardless of line type
+        -- old-side panel always reports side="old" regardless of line type
         local side = "old"
         return { lnum = lnum, side = side, type = ltype }
       end
@@ -863,7 +863,7 @@ function M._open_file_in_tab(jump_to_line)
 
   local full_path = s.root .. "/" .. file.path
   if vim.fn.filereadable(full_path) ~= 1 then
-    -- D12: for deleted files, offer to view the version from the commit
+    -- for deleted files, offer to view the version from the commit
     if file.status == "D" then
       local ref = s.diff_args and s.diff_args[1] or "HEAD"
       local cmd = "git show " .. ref .. ":" .. file.path
@@ -1029,7 +1029,7 @@ function M.setup_keymaps(buf)
       local first_type = display.line_type_map[vstart]
       side = (first_type == "del") and "old" or "new"
 
-      -- D13: detect mixed selection (crossing add + del lines) and warn
+      -- detect mixed selection (crossing add + del lines) and warn
       local has_mixed = false
       for dl = vstart, vend do
         local lt = display.line_type_map[dl]

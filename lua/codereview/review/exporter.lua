@@ -60,7 +60,7 @@ function M.generate()
 			end
 
 			if code and code ~= "" then
-				table.insert(lines, "```text {" .. note.line_start .. "," .. note.line_end .. "}")
+				table.insert(lines, "```text{" .. note.line_start .. "," .. note.line_end .. "}")
 				for code_line in (code .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, code_line)
 				end

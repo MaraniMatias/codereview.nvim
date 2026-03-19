@@ -6,20 +6,25 @@ local config = require("codereview.config")
 local float_ctx = nil
 -- Re-entry guard: true while close/confirm is running
 local closing = false
+-- Re-entry guard: true while ask_save_or_discard prompt is visible
+local asking = false
 
 -- Ask user whether to save or discard the current note (callable externally)
--- N05: uses vim.ui.select instead of vim.fn.confirm to avoid blocking in
+-- uses vim.ui.select instead of vim.fn.confirm to avoid blocking in
 -- GUI frontends (firenvim, neovide, etc.)
 function M.ask_save_or_discard()
-  if not float_ctx then return end
+  if not float_ctx or asking then return end
+  asking = true
   local ctx = float_ctx
   local lines = vim.api.nvim_buf_get_lines(ctx.note_buf, 0, -1, false)
   local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
   if text == "" then
+    asking = false
     M.close()
     return
   end
   vim.ui.select({ "Save", "Discard", "Cancel" }, { prompt = "Save note?" }, function(choice)
+    asking = false
     if choice == "Save" then
       M.confirm()
     elseif choice == "Discard" then
@@ -48,7 +53,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   local side_label = side == "old" and " (deleted)" or ""
   local top_lines = {}
 
-  -- N08: show line numbers in code context block for reference
+  -- show line numbers in code context block for reference
   if code and code ~= "" then
     table.insert(top_lines, "```" .. ext)
     local code_lnum = line_start
@@ -67,7 +72,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   local note_lines = existing_text and vim.split(existing_text, "\n") or { "" }
 
   -- Calculate window size and position
-  -- N03: configurable float width instead of hardcoded 80
+  -- configurable float width instead of hardcoded 80
   local ui = vim.api.nvim_list_uis()[1]
   local max_width = config.options.note_float_width or 80
   local width = math.min(max_width, ui.width - 10)
@@ -98,7 +103,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
   vim.api.nvim_buf_set_lines(top_buf, 0, -1, false, top_lines)
   vim.api.nvim_set_option_value("modifiable", false, { buf = top_buf })
 
-  -- N04: use the plugin's configured border style instead of hardcoded "rounded"
+  -- use the plugin's configured border style instead of hardcoded "rounded"
   local border = config.options.border or "rounded"
 
   -- Create top floating window (not focused)
@@ -217,7 +222,7 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     M.close()
   end, opts)
 
-  -- N07: <C-d> to delete an existing note (clear content + save empty = delete)
+  -- <C-d> to delete an existing note (clear content + save empty = delete)
   vim.keymap.set({ "n", "i" }, "<C-d>", function()
     vim.cmd("stopinsert")
     if not float_ctx then return end
@@ -307,7 +312,10 @@ function M.confirm()
 
   closing = false
 
-  -- N06: use nvim_echo for consistency with the rest of the plugin
+  -- Restore focus to diff view so cursor doesn't get trapped
+  require("codereview.ui.layout").focus_diff()
+
+  -- use nvim_echo for consistency with the rest of the plugin
   local side_suffix = ctx.side == "old" and " (deleted)" or ""
   vim.api.nvim_echo(
     { { "CodeReview: note saved for L" .. ctx.line_start .. side_suffix, "Comment" } },
@@ -333,6 +341,9 @@ function M.close()
     end
   end
   closing = false
+
+  -- Restore focus to diff view so cursor doesn't get trapped
+  require("codereview.ui.layout").focus_diff()
 end
 
 return M

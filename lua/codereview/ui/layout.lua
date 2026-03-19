@@ -6,7 +6,7 @@ local lifecycle_group = vim.api.nvim_create_augroup("CodeReviewLayoutLifecycle",
 local buffer_handlers_group = vim.api.nvim_create_augroup("CodeReviewBufferHandlers", { clear = false })
 local active_session_id = 0
 local blocked_close_session_id = nil
-local saved_statusline = nil  -- L04: saved statusline to restore on close
+local saved_statusline = nil  -- saved statusline to restore on close
 local teardown_in_progress = false
 local teardown_scheduled = false
 local write_in_progress = false
@@ -202,7 +202,7 @@ local function dismantle_review_tab(review_tab, buffers)
     return true
   end
 
-  -- L07: build a set of our own buffers so we only close windows that belong
+  -- build a set of our own buffers so we only close windows that belong
   -- to the plugin, leaving windows from other plugins or user splits untouched.
   local our_bufs = {}
   for _, buf in ipairs(buffers) do
@@ -216,7 +216,7 @@ local function dismantle_review_tab(review_tab, buffers)
       local win = wins[idx]
       if is_valid_window(win) then
         local win_buf = vim.api.nvim_win_get_buf(win)
-        -- L07: only close if the window holds one of our buffers or has a
+        -- only close if the window holds one of our buffers or has a
         -- codereview:// buffer name
         local buf_name = vim.api.nvim_buf_get_name(win_buf)
         if our_bufs[win_buf] or buf_name:match("^codereview://") then
@@ -247,7 +247,7 @@ local function finalize_close(prev_win)
   blocked_close_session_id = nil
   teardown_in_progress = false
   teardown_scheduled = false
-  -- L04: restore original statusline
+  -- restore original statusline
   if saved_statusline ~= nil then
     vim.o.statusline = saved_statusline
     saved_statusline = nil
@@ -342,7 +342,7 @@ local function restore_blocked_layout()
         s.buffers.diff_new = new_buf
         diff_view.setup_keymaps(old_buf)
         diff_view.setup_keymaps(new_buf)
-        -- L05: re-sync scroll state after recreating split panels
+        -- re-sync scroll state after recreating split panels
         pcall(vim.cmd, "syncbind")
       else
         local diff_buf = create_diff_buffer()
@@ -450,7 +450,7 @@ setup_lifecycle_autocmds = function(session_id, wins, bufs)
     })
   end
 
-  -- L06: guard resize callback with session_id to prevent stale autocmds
+  -- guard resize callback with session_id to prevent stale autocmds
   -- from a previous session from firing.
   vim.api.nvim_create_autocmd("VimResized", {
     group = lifecycle_group,
@@ -497,7 +497,7 @@ function M.create()
   local base_win = vim.api.nvim_get_current_win()
   local bg_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_win_set_buf(base_win, bg_buf)
-  -- L04: save the original statusline before overwriting
+  -- save the original statusline before overwriting
   saved_statusline = vim.o.statusline
   vim.api.nvim_set_option_value("statusline", " ", { win = base_win })
 
@@ -638,7 +638,7 @@ function M.resize()
     })
   end
 
-  -- L02: re-render content so virtual text, truncation lines, treesitter
+  -- re-render content so virtual text, truncation lines, treesitter
   -- highlights, and explorer layout stay in sync with the new dimensions.
   local diff_view = require("codereview.ui.diff_view")
   diff_view.refresh_notes()

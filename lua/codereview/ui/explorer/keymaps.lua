@@ -52,7 +52,7 @@ function M.setup(buf)
   layout.setup_write_handlers(buf)
 
   -- CursorMoved covers motions not handled by j/k bindings (gg, G, /, n, etc.)
-  -- E09: auto-skip dir header rows (no action) in tree mode so cursor doesn't
+  -- auto-skip dir header rows (no action) in tree mode so cursor doesn't
   -- stop on non-interactive lines.
   local last_lnum = nil
   vim.api.nvim_create_autocmd("CursorMoved", {
@@ -60,7 +60,7 @@ function M.setup(buf)
     callback = function()
       local lnum = vim.api.nvim_win_get_cursor(0)[1]
       if lnum ~= last_lnum then
-        -- E09: if landed on a header row (no action, lnum > 1), nudge cursor
+        -- if landed on a header row (no action, lnum > 1), nudge cursor
         local explorer_st = require("codereview.ui.explorer.state").get()
         local action = explorer_st.actions_by_line[lnum]
         if not action and lnum > 1 then

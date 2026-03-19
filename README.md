@@ -167,11 +167,12 @@ All keybindings are remappable via `keymaps` in your setup config.
 
 ### Note Editor
 
-| Key     | Action                      |
-| ------- | --------------------------- |
-| `w`     | Save note (normal mode)     |
-| `q`     | Discard note without asking |
-| `<Esc>` | Ask to save or discard      |
+| Key     | Action                          |
+| ------- | ------------------------------- |
+| `<C-s>` | Save note (normal & insert)     |
+| `q`     | Discard note without asking     |
+| `<Esc>` | Ask to save or discard          |
+| `<C-d>` | Delete note (with confirmation) |
 
 ## Configuration
 
@@ -197,11 +198,19 @@ require("codereview").setup({
   diff_title = " Diff ",
   note_truncate_len = 30,           -- max chars per line in explorer note sub-rows
   note_multiline = false,           -- false = collapse note to one line | true = show each line
+  note_glyph = "⊳",                -- glyph prefix for note rows; use ">" for ASCII fallback
   virtual_text_truncate_len = 60,   -- truncation of virtual text annotations
+  virtual_text_max_lines = 3,       -- extra lines shown below the code line (0 = eol only)
   max_diff_lines = 1200,            -- initial visible diff lines before truncation
   diff_page_size = 400,             -- extra lines revealed per load-more action
   explorer_layout = "flat",         -- "flat" (filename first + dimmed dir) | "tree" (grouped by dir)
   explorer_path_hl = "Comment",     -- highlight group for the dimmed directory portion (flat layout)
+  explorer_show_help = true,        -- show "(? help)" hint in explorer header
+  explorer_path_separator = "  ",   -- separator between filename and dir in flat layout
+  explorer_status_icons = nil,      -- override status icons, e.g. { M = "M", A = "A", D = "D" }
+  note_count_hl = "WarningMsg",     -- highlight group for note count "(3)" in explorer
+  note_float_width = 80,            -- max width for the note editor float window
+  treesitter_max_lines = 5000,      -- disable treesitter highlighting above this line count
 
   keymaps = {
     note = "n",                     -- smart add/edit note on current line

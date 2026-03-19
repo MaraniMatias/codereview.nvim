@@ -23,7 +23,7 @@ end
 -- Shared helpers
 -- ---------------------------------------------------------------------------
 
--- E12: default status icons; users can override with explorer_status_icons config.
+-- default status icons; users can override with explorer_status_icons config.
 local DEFAULT_STATUS_ICONS = {
 	M = "[M]", A = "[A]", D = "[D]",
 	R = "[R]", C = "[C]", U = "[U]",
@@ -120,7 +120,7 @@ local function build_flat(files, current_file_idx)
 	local lines           = {}
 	local actions_by_line = {}
 	local dim_by_line     = {}
-	-- E01: track where note_marker/binary_tag start so we can highlight them
+	-- track where note_marker/binary_tag start so we can highlight them
 	-- separately instead of letting them fall inside the dim region.
 	local tag_ranges      = {}  -- lnum → { col_start, col_end }[]
 	local truncate_len    = config.options.note_truncate_len
@@ -129,16 +129,16 @@ local function build_flat(files, current_file_idx)
 	-- E06/E16: build header with optional help hint and layout indicator
 	local total  = #files
 	local help_hint  = config.options.explorer_show_help ~= false and "  (? help)" or ""
-	local layout_tag = " [flat]"  -- E16: indicate active layout
+	local layout_tag = " [flat]"  -- indicate active layout
 	local header = total > 0
 		and string.format("CodeReview [%d/%d]" .. layout_tag .. help_hint, current_file_idx or 0, total)
 		or  ("CodeReview" .. layout_tag .. help_hint)
 	table.insert(lines, header)
 
-	-- E11: separator between header and file list
+	-- separator between header and file list
 	table.insert(lines, "")
 
-	-- E14: empty state message when there are no files
+	-- empty state message when there are no files
 	if total == 0 then
 		table.insert(lines, "  No files changed")
 		return { lines = lines, actions_by_line = actions_by_line, dim_by_line = dim_by_line, tag_ranges = tag_ranges }
@@ -146,7 +146,7 @@ local function build_flat(files, current_file_idx)
 
 	for idx, file in ipairs(files) do
 		local status_icon = STATUS_ICONS[file.status] or "[?]"
-		-- E04: use a fixed-width marker so alignment is stable regardless
+		-- use a fixed-width marker so alignment is stable regardless
 		-- of whether ▶ is multibyte.  "▶ " vs "  " both occupy 2 cells,
 		-- but we pad with strdisplaywidth to be safe.
 		local marker      = (idx == current_file_idx) and "▶ " or "  "
@@ -169,20 +169,20 @@ local function build_flat(files, current_file_idx)
 		-- Prefix before the dimmed region: "▶ [M]  foo.lua"
 		local prefix = marker .. status_icon .. "  " .. name
 
-		-- E03: root files (dir == "") get a dim "./" indicator
+		-- root files (dir == "") get a dim "./" indicator
 		local dir_display = dir
 		if dir ~= nil and dir == "" then
 			dir_display = "./"
 		end
 
-		-- E17: configurable separator between filename and dir path
+		-- configurable separator between filename and dir path
 		local sep = config.options.explorer_path_separator or "  "
 		local dim_part = dir_display and (dir_display ~= "" and (sep .. dir_display) or "") or ""
 
 		-- Build line: prefix + dim_part + tags (note_marker, binary_tag come AFTER dim)
 		local full_line = prefix .. dim_part .. note_marker .. binary_tag
 
-		-- E05: truncate with ellipsis if line exceeds explorer panel width
+		-- truncate with ellipsis if line exceeds explorer panel width
 		local exp_width = config.options.explorer_width or 30
 		if vim.fn.strdisplaywidth(full_line) > exp_width then
 			-- Truncate the dim_part to fit, keeping prefix + tags intact
@@ -204,7 +204,7 @@ local function build_flat(files, current_file_idx)
 			dim_by_line[#lines] = { col_start = math.max(0, dim_start), col_end = dim_end }
 		end
 
-		-- E01: record tag positions so view.lua can highlight them with main color
+		-- record tag positions so view.lua can highlight them with main color
 		if note_marker ~= "" or binary_tag ~= "" then
 			local tag_start = #prefix + #dim_part
 			local ranges = {}
@@ -248,16 +248,16 @@ local function build_tree(files, current_file_idx)
 	-- E06/E16: build header with optional help hint and layout indicator
 	local total  = #files
 	local help_hint  = config.options.explorer_show_help ~= false and "  (? help)" or ""
-	local layout_tag = " [tree]"  -- E16: indicate active layout
+	local layout_tag = " [tree]"  -- indicate active layout
 	local header = total > 0
 		and string.format("CodeReview [%d/%d]" .. layout_tag .. help_hint, current_file_idx or 0, total)
 		or  ("CodeReview" .. layout_tag .. help_hint)
 	table.insert(lines, header)
 
-	-- E11: separator between header and file list
+	-- separator between header and file list
 	table.insert(lines, "")
 
-	-- E14: empty state message when there are no files
+	-- empty state message when there are no files
 	if total == 0 then
 		table.insert(lines, "  No files changed")
 		return { lines = lines, actions_by_line = actions_by_line, dim_by_line = {} }
@@ -278,7 +278,7 @@ local function build_tree(files, current_file_idx)
 
 	for _, dir in ipairs(dir_order) do
 		-- Directory header row (no action — not selectable)
-		-- E08: use "./" instead of "(root)" to avoid ambiguity
+		-- use "./" instead of "(root)" to avoid ambiguity
 		local dir_label = dir ~= "" and dir or "./"
 		table.insert(lines, dir_label)
 		-- actions_by_line[#lines] stays nil intentionally
@@ -308,7 +308,7 @@ local function build_tree(files, current_file_idx)
 
 			if file.expanded then
 				for _, row in ipairs(note_rows(file.path, truncate_len)) do
-					-- E10: note_rows already have 4-space indent; add minimal tree
+					-- note_rows already have 4-space indent; add minimal tree
 					-- indent ("  ") instead of nesting deeper with the dir path.
 					table.insert(lines, "  " .. row.line)
 					actions_by_line[#lines] = row.action
