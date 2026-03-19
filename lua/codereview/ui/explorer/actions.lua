@@ -185,7 +185,7 @@ function M.next_file()
   if from < #s.files then
     M.preview_action({ type = "file", idx = from + 1 }, { move_cursor = true })
   else
-    vim.notify("No more files", vim.log.levels.INFO, { title = "CodeReview" })
+    vim.api.nvim_echo({ { "CodeReview: no more files", "Comment" } }, false, {})
   end
 end
 
@@ -194,7 +194,7 @@ function M.prev_file()
   if from > 1 then
     M.preview_action({ type = "file", idx = from - 1 }, { move_cursor = true })
   else
-    vim.notify("Already at first file", vim.log.levels.INFO, { title = "CodeReview" })
+    vim.api.nvim_echo({ { "CodeReview: already at first file", "Comment" } }, false, {})
   end
 end
 

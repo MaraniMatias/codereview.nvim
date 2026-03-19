@@ -39,7 +39,11 @@ function M.build(files, current_file_idx)
 	local actions_by_line = {}
 	local truncate_len = config.options.note_truncate_len
 
-	table.insert(lines, "CodeReview  (? help)")
+	local total = #files
+	local header = total > 0
+		and string.format("CodeReview [%d/%d]  (? help)", current_file_idx or 0, total)
+		or "CodeReview  (? help)"
+	table.insert(lines, header)
 
 	for idx, file in ipairs(files) do
 		local icon = STATUS_ICONS[file.status] or "[?]"

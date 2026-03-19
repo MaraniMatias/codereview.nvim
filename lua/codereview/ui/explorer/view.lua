@@ -73,11 +73,18 @@ end
 function M.move_cursor_to_file(idx)
   local s = state.get()
   local win = s.windows.explorer
+  local buf = s.buffers.explorer
   if not win or not vim.api.nvim_win_is_valid(win) then
     return
   end
 
-  for lnum, action in pairs(explorer_state.get().actions_by_line) do
+  -- Iterate in ascending line order so we always land on the file row,
+  -- not on a note sub-row that happens to share the same file index.
+  -- pairs() has non-deterministic order and could match a note row first.
+  local actions_by_line = explorer_state.get().actions_by_line
+  local total = buf and vim.api.nvim_buf_line_count(buf) or 0
+  for lnum = 1, total do
+    local action = actions_by_line[lnum]
     if action and action.type == "file" and action.idx == idx then
       vim.api.nvim_win_set_cursor(win, { lnum, 0 })
       return
