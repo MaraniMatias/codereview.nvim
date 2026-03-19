@@ -3,6 +3,8 @@ local store = require("codereview.notes.store")
 
 -- Currently open float context
 local float_ctx = nil
+-- Re-entry guard: true while close/confirm is running
+local closing = false
 
 -- Ask user whether to save or discard the current note (callable externally)
 function M.ask_save_or_discard()
@@ -202,13 +204,13 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     M.close()
   end, opts)
 
-  -- Autocmd to close on buffer leave
+  -- Autocmd to handle buffer leave — ask save/discard instead of silent close
   vim.api.nvim_create_autocmd("BufLeave", {
     buffer = note_buf,
     once = true,
     callback = function()
-      if float_ctx then
-        M.close()
+      if float_ctx and not closing then
+        vim.schedule(M.ask_save_or_discard)
       end
     end,
   })
@@ -216,7 +218,8 @@ end
 
 -- Confirm the note (save it)
 function M.confirm()
-  if not float_ctx then return end
+  if not float_ctx or closing then return end
+  closing = true
   local ctx = float_ctx
 
   -- Get the note text (entire note buffer)
@@ -224,6 +227,7 @@ function M.confirm()
   local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
 
   if text == "" then
+    closing = false
     M.close()
     return
   end
@@ -264,6 +268,8 @@ function M.confirm()
     end
   end
 
+  closing = false
+
   local side_suffix = ctx.side == "old" and " (deleted)" or ""
   vim.notify("Note saved for L" .. ctx.line_start .. side_suffix, vim.log.levels.INFO)
 end
@@ -276,7 +282,8 @@ end
 
 -- Close without saving
 function M.close()
-  if not float_ctx then return end
+  if not float_ctx or closing then return end
+  closing = true
   local ctx = float_ctx
   float_ctx = nil
   for _, win in ipairs({ ctx.note_win, ctx.top_win }) do
@@ -284,6 +291,7 @@ function M.close()
       vim.api.nvim_win_close(win, true)
     end
   end
+  closing = false
 end
 
 return M
