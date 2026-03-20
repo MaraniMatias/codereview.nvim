@@ -20,7 +20,7 @@ explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grou
 	treesitter_max_lines = 5000, -- max diff lines for treesitter highlighting
 	virtual_text_truncate_len = 60, -- truncation of virtual text (eol preview)
 	virtual_text_max_lines = 3, -- extra lines shown below the code line (0 = eol only)
-	show_untracked = false, -- show untracked files in review mode
+	show_untracked = true, -- show untracked files in review mode
 	max_diff_lines = 1200, -- initial visible diff lines before truncation
 	diff_page_size = 400, -- extra diff lines to reveal per load-more action
 	keymaps = {

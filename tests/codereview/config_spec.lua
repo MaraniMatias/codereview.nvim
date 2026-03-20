@@ -12,6 +12,7 @@ describe("config", function()
     assert.equals(60, config.defaults.virtual_text_truncate_len)
     assert.equals(1200, config.defaults.max_diff_lines)
     assert.equals(400, config.defaults.diff_page_size)
+    assert.is_true(config.defaults.show_untracked)
   end)
 
   it("setup({}) produces defaults", function()

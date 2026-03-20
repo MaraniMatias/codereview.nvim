@@ -12,6 +12,24 @@ local refresh_gen = 0
 -- How long (ms) before an async lock auto-resets if the callback never fires.
 local ASYNC_TIMEOUT_MS = 10000
 
+--- Build a human-readable summary like "3 changed + 2 untracked file(s)".
+--- Exposed as M._build_file_summary for testing.
+---@param files table[]
+---@return string
+function M._build_file_summary(files)
+  local untracked_count = 0
+  for _, f in ipairs(files) do
+    if f.status == "?" then untracked_count = untracked_count + 1 end
+  end
+  local changed_count = #files - untracked_count
+
+  local parts = {}
+  if changed_count > 0 then table.insert(parts, changed_count .. " changed") end
+  if untracked_count > 0 then table.insert(parts, untracked_count .. " untracked") end
+  if #parts == 0 then return "0 file(s)" end
+  return table.concat(parts, " + ") .. " file(s)"
+end
+
 local function ensure_config()
   if vim.tbl_isempty(config.options) then
     config.setup({})
@@ -218,7 +236,9 @@ function M.open(args)
           s.files = normalize_files(all_files)
           s.current_file_idx = 1
           local view_label = config.options.diff_view == "split" and " [split]" or ""
-          open_layout("codereview" .. view_label .. ": " .. #all_files .. " changed file(s) | " .. args_display)
+
+          local summary = M._build_file_summary(all_files)
+          open_layout("codereview" .. view_label .. ": " .. summary .. " | " .. args_display)
         end)
       end
 
@@ -414,7 +434,8 @@ function M.refresh()
     end
 
     diff_view.show_file(s.current_file_idx)
-    vim.notify("codereview: refreshed", vim.log.levels.INFO)
+
+    vim.notify("codereview: refreshed — " .. M._build_file_summary(s.files), vim.log.levels.INFO)
   end
 
   if s.mode == "review" then
