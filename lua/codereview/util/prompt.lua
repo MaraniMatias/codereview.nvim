@@ -1,54 +1,43 @@
 local M = {}
 
---- Ask a yes/no confirmation in the cmdline.
---- Uses redraw + nvim_echo + getcharstr to bypass Noice/notification plugins.
---- Returns true for "y"/"Y", false for anything else (including Esc).
+--- Ask a yes/no confirmation via vim.fn.confirm().
+--- Works with Noice (shown as interactive cmdline, not passive notification).
+--- Returns true for "Yes", false for "No" or dismiss.
 function M.confirm(message)
-  vim.cmd("redraw")
-  vim.api.nvim_echo({ { message .. " [y/n] ", "Question" } }, false, {})
-  local ok, ch = pcall(vim.fn.getcharstr)
-  vim.cmd("echo ''")
-  if not ok then
-    return false
-  end
-  return ch == "y" or ch == "Y"
+  local choice = vim.fn.confirm(message, "&Yes\n&No", 2, "Question")
+  return choice == 1
 end
 
---- Ask the user to choose from N options in the cmdline.
+--- Ask the user to choose from N options via vim.fn.confirm().
 --- Each option is a table { key = "o", label = "overwrite", value = "overwrite" }.
---- Uses redraw + nvim_echo + getcharstr to bypass Noice/notification plugins.
---- Shows `message [y]es (save) / [n]o (discard)` and reads a single key.
---- Returns the `value` of the matched option, or nil on Esc / no match.
+--- Works with Noice (shown as interactive cmdline, not passive notification).
+--- Returns the `value` of the chosen option, or nil on dismiss / no match.
 function M.choose(message, options)
-  -- Build display: [k]label / [k]label / ...
-  local parts = {}
+  local buttons = {}
   for _, opt in ipairs(options) do
-    table.insert(parts, "[" .. opt.key .. "]" .. opt.label:sub(2))
-  end
-  local suffix = table.concat(parts, " / ")
-
-  vim.cmd("redraw")
-  vim.api.nvim_echo({
-    { message .. " ", "Question" },
-    { suffix .. " ", "MoreMsg" },
-  }, false, {})
-
-  local ok, ch = pcall(vim.fn.getcharstr)
-  vim.cmd("echo ''")
-  if not ok then
-    return nil
-  end
-
-  -- Esc key (byte 27)
-  if ch == "\27" then
-    return nil
-  end
-
-  local lower = ch:lower()
-  for _, opt in ipairs(options) do
-    if lower == opt.key:lower() then
-      return opt.value
+    local label = opt.label
+    local key_lower = opt.key:lower()
+    local found = false
+    local result = ""
+    for i = 1, #label do
+      local ch = label:sub(i, i)
+      if not found and ch:lower() == key_lower then
+        result = result .. "&" .. ch
+        found = true
+      else
+        result = result .. ch
+      end
     end
+    if not found then
+      result = "&" .. opt.key .. " " .. label
+    end
+    result = result:sub(1, 1):upper() .. result:sub(2)
+    table.insert(buttons, result)
+  end
+
+  local choice = vim.fn.confirm(message, table.concat(buttons, "\n"), 1, "Question")
+  if choice >= 1 and choice <= #options then
+    return options[choice].value
   end
   return nil
 end

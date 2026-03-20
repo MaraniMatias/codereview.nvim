@@ -4,6 +4,10 @@ local store = require("codereview.notes.store")
 local config = require("codereview.config")
 local prompt = require("codereview.util.prompt")
 
+-- ---------------------------------------------------------------------------
+-- Shared helpers
+-- ---------------------------------------------------------------------------
+
 local function read_lines(abs_path, first, last)
 	local f = io.open(abs_path, "r")
 	if not f then
@@ -30,173 +34,206 @@ local function read_lines(abs_path, first, last)
 	return table.concat(slice, "\n")
 end
 
--- Helper: resolve the first line of code for a note (used by inline/compact formats)
-local function first_code_line(note, root)
-	local side = note.side or "new"
-	if side == "old" then
-		return nil
+-- "42" when start==end, "42-50" when they differ
+local function format_range(line_start, line_end)
+	if line_start == line_end then
+		return tostring(line_start)
 	end
-	local line = note.code
-	if line and line ~= "" then
-		-- note.code may be a multi-line block; take only the first line
-		line = line:match("([^\n]+)") or line
-	else
-		line = read_lines(root .. "/" .. note.filepath, note.line_start, note.line_start)
-	end
-	if line then
-		line = vim.trim(line)
-	end
-	return (line ~= "") and line or nil
+	return line_start .. "-" .. line_end
 end
 
--- Format: one entry per note, ref + inline code on one line, note text below
---
--- src/foo.js:0 `const result = a + b;`
--- revisit this calculation
---
--- handlers/user.js:67 `function handleUser(user) {`
--- null check `user` before `.name`
--- add logging for failed cases
-local function generate_inline()
+-- "{42}" for new-side, "{-42}" for old/deleted side; comma-separated for ranges
+local function format_fence_range(line_start, line_end, side)
+	local prefix = (side == "old") and "-" or ""
+	if line_start == line_end then
+		return "{" .. prefix .. line_start .. "}"
+	end
+	return "{" .. prefix .. line_start .. "," .. prefix .. line_end .. "}"
+end
+
+-- Map file extension to markdown language tag for syntax highlighting
+local EXT_LANG = {
+	lua = "lua", js = "js", ts = "ts", tsx = "tsx", jsx = "jsx",
+	py = "python", rb = "ruby", rs = "rust", go = "go", java = "java",
+	c = "c", cpp = "cpp", h = "c", hpp = "cpp", cs = "csharp",
+	sh = "sh", bash = "bash", zsh = "zsh", fish = "fish",
+	json = "json", yaml = "yaml", yml = "yaml", toml = "toml",
+	md = "markdown", html = "html", css = "css", scss = "scss",
+	sql = "sql", vim = "vim", ex = "elixir", exs = "elixir",
+	kt = "kotlin", swift = "swift", php = "php", r = "r",
+}
+
+local function detect_lang(filepath)
+	local ext = filepath:match("%.([^%.]+)$")
+	if ext then
+		return EXT_LANG[ext:lower()] or ext:lower()
+	end
+	return ""
+end
+
+-- Group a sorted-by-filepath list of notes into { {filepath, notes}, ... }
+local function group_by_file(all_notes)
+	local groups = {}
+	local current_file = nil
+	local current_group = nil
+	for _, note in ipairs(all_notes) do
+		if note.filepath ~= current_file then
+			current_file = note.filepath
+			current_group = { filepath = current_file, notes = {} }
+			table.insert(groups, current_group)
+		end
+		table.insert(current_group.notes, note)
+	end
+	return groups
+end
+
+-- Build enriched header with git context
+local function build_header(all_notes)
 	local date = os.date("%Y-%m-%d")
 	local lines = {}
 
-	table.insert(lines, "# Review " .. date)
+	table.insert(lines, "# Code Review " .. date)
 	table.insert(lines, "")
 
+	-- Determine diff context label
+	local s = state.get()
+	local diff_label
+	if s.mode == "difftool" then
+		diff_label = "difftool"
+	elseif s.diff_args and #s.diff_args > 0 then
+		diff_label = table.concat(s.diff_args, " ")
+	else
+		diff_label = "working tree"
+	end
+
+	-- Count unique files from notes
+	local file_set = {}
+	for _, note in ipairs(all_notes) do
+		file_set[note.filepath] = true
+	end
+	local file_count = 0
+	for _ in pairs(file_set) do
+		file_count = file_count + 1
+	end
+
+	local note_count = #all_notes
+	local summary = string.format(
+		"> `%s` — %d %s, %d %s",
+		diff_label,
+		file_count,
+		file_count == 1 and "file" or "files",
+		note_count,
+		note_count == 1 and "note" or "notes"
+	)
+	table.insert(lines, summary)
+	table.insert(lines, "")
+
+	return lines
+end
+
+-- ---------------------------------------------------------------------------
+-- Format: "human" — markdown with headings per file, code blocks, line refs
+-- ---------------------------------------------------------------------------
+
+local function generate_human()
 	local all_notes = store.get_all()
+	local lines = build_header(all_notes)
 
 	if #all_notes == 0 then
 		table.insert(lines, "_Write your notes here._")
 		table.insert(lines, "")
-	else
-		local root = state.get().root or vim.fn.getcwd()
-
-		for _, note in ipairs(all_notes) do
-			local side = note.side or "new"
-			local side_suffix = side == "old" and " (deleted)" or ""
-			local ref = note.filepath .. side_suffix .. ":" .. note.line_start
-			local code = first_code_line(note, root)
-
-			if code then
-				table.insert(lines, ref .. " `" .. code .. "`")
-			else
-				table.insert(lines, ref)
-			end
-
-			if note.text and note.text ~= "" then
-				for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
-					table.insert(lines, text_line)
-				end
-			end
-
-			table.insert(lines, "")
-		end
+		return table.concat(lines, "\n")
 	end
 
-	return table.concat(lines, "\n")
-end
-
--- Format: one line per note — ref range — note text (newlines collapsed, no code)
---
--- src/foo.js:0-1 — revisit this calculation
--- handlers/user.js:67-72 — add null check for `user` before accessing `.name`
-local function generate_compact()
-	local date = os.date("%Y-%m-%d")
-	local lines = {}
-
-	table.insert(lines, "# Review " .. date)
-	table.insert(lines, "")
-
-	local all_notes = store.get_all()
-
-	if #all_notes == 0 then
-		table.insert(lines, "_Write your notes here._")
-		table.insert(lines, "")
-	else
-		for _, note in ipairs(all_notes) do
-			local side = note.side or "new"
-			local side_suffix = side == "old" and " (deleted)" or ""
-			local range = note.line_start .. "-" .. note.line_end
-			local ref = note.filepath .. side_suffix .. ":" .. range
-
-			local entry = ref
-			if note.text and note.text ~= "" then
-				local one_line = vim.trim(note.text:gsub("\n+", " "))
-				entry = entry .. " - " .. one_line
-			end
-
-			table.insert(lines, entry)
-		end
-
-		table.insert(lines, "")
-	end
-
-	return table.concat(lines, "\n")
-end
-
--- Format: full code block per note (original behaviour)
-local function generate_block()
-	local date = os.date("%Y-%m-%d")
-	local lines = {}
+	local root = state.get().root or vim.fn.getcwd()
 	local ctx = (config.options.review and config.options.review.context_lines) or 0
+	local groups = group_by_file(all_notes)
 
-	table.insert(lines, "# Review " .. date)
-	table.insert(lines, "")
-
-	local all_notes = store.get_all()
-
-	if #all_notes == 0 then
-		table.insert(lines, "_Write your notes here._")
+	for _, group in ipairs(groups) do
+		table.insert(lines, "## " .. group.filepath)
 		table.insert(lines, "")
-	else
-		local root = state.get().root or vim.fn.getcwd()
 
-		for _, note in ipairs(all_notes) do
-			-- Anchor: `filepath` with (deleted) for old-side
+		for i, note in ipairs(group.notes) do
 			local side = note.side or "new"
-			local side_suffix = side == "old" and " (deleted)" or ""
-			table.insert(lines, "`" .. note.filepath .. side_suffix .. "`")
-			table.insert(lines, "")
+			local lang = detect_lang(note.filepath)
+			local fence_range = format_fence_range(note.line_start, note.line_end, side)
 
-			-- Code block (visual selection, or auto-read from disk)
+			-- Code block
 			local code = note.code
 			if (not code or code == "") and side ~= "old" then
 				code = read_lines(root .. "/" .. note.filepath, note.line_start - ctx, note.line_end + ctx)
 			end
 
+			table.insert(lines, "```" .. lang .. fence_range)
 			if code and code ~= "" then
-				table.insert(lines, "```text{" .. note.line_start .. "," .. note.line_end .. "}")
 				for code_line in (code .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, code_line)
 				end
-				table.insert(lines, "```")
-				table.insert(lines, "")
 			end
+			table.insert(lines, "```")
+			table.insert(lines, "")
 
-			-- Note text as plain paragraph
+			-- Note text
 			if note.text and note.text ~= "" then
 				for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, text_line)
 				end
+				table.insert(lines, "")
 			end
 
-			table.insert(lines, "")
+			-- Separator between notes in the same file (not after the last one)
+			if i < #group.notes then
+				table.insert(lines, "---")
+				table.insert(lines, "")
+			end
 		end
 	end
 
 	return table.concat(lines, "\n")
 end
 
--- Generate the markdown review content (dispatch by export_format)
+-- ---------------------------------------------------------------------------
+-- Format: "llm" — TSV with header, one line per note, token-efficient
+-- ---------------------------------------------------------------------------
+
+local function generate_llm()
+	local all_notes = store.get_all()
+
+	local lines = {}
+	table.insert(lines, "file|line|text")
+
+	if #all_notes == 0 then
+		return table.concat(lines, "\n") .. "\n"
+	end
+
+	for _, note in ipairs(all_notes) do
+		local range = format_range(note.line_start, note.line_end)
+		local side = note.side or "new"
+		local filepath = note.filepath
+		if side == "old" then
+			filepath = filepath .. " (del)"
+		end
+		local text = ""
+		if note.text and note.text ~= "" then
+			text = vim.trim(note.text:gsub("\n+", " "))
+		end
+		table.insert(lines, filepath .. "|" .. range .. "|" .. text)
+	end
+
+	return table.concat(lines, "\n") .. "\n"
+end
+
+-- ---------------------------------------------------------------------------
+-- Public API
+-- ---------------------------------------------------------------------------
+
+-- Generate the review content (dispatch by export_format)
 function M.generate()
-	local fmt = (config.options.review and config.options.review.export_format) or "inline"
-	if fmt == "compact" then
-		return generate_compact()
-	elseif fmt == "block" then
-		return generate_block()
+	local fmt = (config.options.review and config.options.review.export_format) or "default"
+	if fmt == "table" then
+		return generate_llm()
 	else
-		return generate_inline()
+		return generate_human()
 	end
 end
 
@@ -248,7 +285,8 @@ local function validate_filename(filename)
 end
 
 -- Save directly to auto-generated path (no prompt).
--- Warns instead of silently overwriting if the file already exists.
+-- When the file already exists, offers overwrite / rename / cancel instead of
+-- showing a passive warning.
 function M.save_direct()
 	local s = state.get()
 	local cfg = config.options
@@ -257,12 +295,22 @@ function M.save_direct()
 	local full_path = save_dir .. "/" .. default_name
 
 	if vim.fn.filereadable(full_path) == 1 then
-		vim.notify(
-			"codereview: "
-				.. full_path
-				.. " already exists — use the save prompt (default keymap: <leader>s) to overwrite or rename",
-			vim.log.levels.WARN
-		)
+		vim.schedule(function()
+			local choice = prompt.choose('"' .. default_name .. '" already exists:', {
+				{ key = "o", label = "overwrite", value = "overwrite" },
+				{ key = "r", label = "rename", value = "rename" },
+				{ key = "c", label = "cancel", value = "cancel" },
+			})
+			if choice == "overwrite" then
+				if M.save(full_path) then
+					vim.notify("Review saved to " .. full_path, vim.log.levels.INFO)
+				end
+			elseif choice == "rename" then
+				vim.schedule(function()
+					M._prompt_filename(save_dir, default_name)
+				end)
+			end
+		end)
 		return
 	end
 
