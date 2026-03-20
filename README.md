@@ -30,9 +30,7 @@ Running `:w` or `:W` generates a review file. Two formats are available via `rev
 
 ## src/foo.js
 
-**L10**
-
-```js
+```js{10}
 const result = a + b;
 ```
 
@@ -40,9 +38,7 @@ revisit this calculation
 
 ---
 
-**L67-72**
-
-```js
+```js{67,72}
 function handleUser(user) {
   if (user.name) {
     return user.name;
@@ -54,9 +50,7 @@ null check `user` before `.name`
 
 ## handlers/user.js
 
-**L120**
-
-```js
+```js{120}
 logger.info(event);
 ```
 

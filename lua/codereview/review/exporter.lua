@@ -42,6 +42,15 @@ local function format_range(line_start, line_end)
 	return line_start .. "-" .. line_end
 end
 
+-- "{42}" for new-side, "{-42}" for old/deleted side; comma-separated for ranges
+local function format_fence_range(line_start, line_end, side)
+	local prefix = (side == "old") and "-" or ""
+	if line_start == line_end then
+		return "{" .. prefix .. line_start .. "}"
+	end
+	return "{" .. prefix .. line_start .. "," .. prefix .. line_end .. "}"
+end
+
 -- Map file extension to markdown language tag for syntax highlighting
 local EXT_LANG = {
 	lua = "lua", js = "js", ts = "ts", tsx = "tsx", jsx = "jsx",
@@ -146,11 +155,8 @@ local function generate_human()
 
 		for i, note in ipairs(group.notes) do
 			local side = note.side or "new"
-			local side_suffix = side == "old" and " (old)" or ""
-			local range = format_range(note.line_start, note.line_end)
-
-			table.insert(lines, "**L" .. range .. side_suffix .. "**")
-			table.insert(lines, "")
+			local lang = detect_lang(note.filepath)
+			local fence_range = format_fence_range(note.line_start, note.line_end, side)
 
 			-- Code block
 			local code = note.code
@@ -158,15 +164,14 @@ local function generate_human()
 				code = read_lines(root .. "/" .. note.filepath, note.line_start - ctx, note.line_end + ctx)
 			end
 
+			table.insert(lines, "```" .. lang .. fence_range)
 			if code and code ~= "" then
-				local lang = detect_lang(note.filepath)
-				table.insert(lines, "```" .. lang)
 				for code_line in (code .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, code_line)
 				end
-				table.insert(lines, "```")
-				table.insert(lines, "")
 			end
+			table.insert(lines, "```")
+			table.insert(lines, "")
 
 			-- Note text
 			if note.text and note.text ~= "" then
