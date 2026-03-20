@@ -21,8 +21,10 @@ local function create_panel()
     all_old_line_map = {},
     all_old_to_display = {},
     all_line_type_map = {},
+    all_old_lnum_display = {}, -- old_lnum for ALL lines (ctx + del), for gutter display only
     old_line_map = {},
     old_to_display = {},
+    old_lnum_display = {}, -- visible-slice of all_old_lnum_display
     line_type_map = {},
     visible_extmarks = {}, -- visible_extmarks[buf][filepath][key] = extmark_id
     visible_until = 0,
@@ -47,8 +49,10 @@ local function reset_panel(panel)
   panel.all_old_line_map = {}
   panel.all_old_to_display = {}
   panel.all_line_type_map = {}
+  panel.all_old_lnum_display = {}
   panel.old_line_map = {}
   panel.old_to_display = {}
+  panel.old_lnum_display = {}
   panel.line_type_map = {}
   panel.visible_extmarks = {}
   panel.visible_until = 0
@@ -106,6 +110,7 @@ local function rebuild_visible_slice(panel)
   local new_to_display = {}
   local old_line_map = {}
   local old_to_display = {}
+  local old_lnum_display = {}
   local line_type_map = {}
 
   local out_idx = 0
@@ -143,6 +148,12 @@ local function rebuild_visible_slice(panel)
         old_to_display[old_lnum] = out_idx
       end
 
+      -- old_lnum_display includes ctx lines (for gutter line numbers)
+      local old_lnum_disp = panel.all_old_lnum_display[src_idx]
+      if old_lnum_disp then
+        old_lnum_display[out_idx] = old_lnum_disp
+      end
+
       local lt = panel.all_line_type_map[src_idx]
       if lt then
         line_type_map[out_idx] = lt
@@ -164,6 +175,7 @@ local function rebuild_visible_slice(panel)
   panel.new_to_display = new_to_display
   panel.old_line_map = old_line_map
   panel.old_to_display = old_to_display
+  panel.old_lnum_display = old_lnum_display
   panel.line_type_map = line_type_map
 end
 
@@ -181,6 +193,7 @@ local function apply_display(panel, display, mapping)
   panel.all_line_types = display.all_line_types or {}
   panel.all_line_map = display.all_line_map or {}
   panel.all_line_type_map = display.all_line_type_map or {}
+  panel.all_old_lnum_display = display.all_old_lnum_display or {}
   panel.visible_until = display.visible_until or #panel.all_lines
 
   -- Apply the variable field mappings

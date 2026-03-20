@@ -23,6 +23,12 @@ explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grou
 	show_untracked = true, -- show untracked files in review mode
 	max_diff_lines = 1200, -- initial visible diff lines before truncation
 	diff_page_size = 400, -- extra diff lines to reveal per load-more action
+	show_line_numbers = true, -- show old/new line numbers in diff gutter
+	line_number_hl = "LineNr", -- highlight group for line numbers
+	inline_diff = true, -- highlight changed characters within modified lines
+	inline_diff_max_len = 500, -- skip inline diff for lines longer than this
+	show_diff_signs = false, -- show +/- signs in sign column (redundant with inline prefixes)
+	dim_metadata = true, -- dim diff metadata lines (index, similarity, etc.)
 	keymaps = {
 		note = "n",
 		toggle_virtual_text = "<leader>uh",
@@ -174,6 +180,36 @@ virtual_text_truncate_len = {
 			opts.treesitter_max_lines,
 			function(v) return v == nil or (type(v) == "number" and v > 0) end,
 			"expected a positive number",
+		},
+		show_line_numbers = {
+			opts.show_line_numbers,
+			function(v) return v == nil or type(v) == "boolean" end,
+			"expected a boolean",
+		},
+		line_number_hl = {
+			opts.line_number_hl,
+			function(v) return v == nil or type(v) == "string" end,
+			"expected a string (highlight group name)",
+		},
+		inline_diff = {
+			opts.inline_diff,
+			function(v) return v == nil or type(v) == "boolean" end,
+			"expected a boolean",
+		},
+		inline_diff_max_len = {
+			opts.inline_diff_max_len,
+			function(v) return v == nil or (type(v) == "number" and v > 0) end,
+			"expected a positive number",
+		},
+		show_diff_signs = {
+			opts.show_diff_signs,
+			function(v) return v == nil or type(v) == "boolean" end,
+			"expected a boolean",
+		},
+		dim_metadata = {
+			opts.dim_metadata,
+			function(v) return v == nil or type(v) == "boolean" end,
+			"expected a boolean",
 		},
 	})
 

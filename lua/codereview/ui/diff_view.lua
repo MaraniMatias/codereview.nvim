@@ -133,6 +133,11 @@ local function build_full_display(parsed)
   local all_old_line_map = {}
   local all_old_to_display = {}
   local all_line_type_map = {}
+  -- Separate map that includes old_lnum for ALL lines (ctx + del), used
+  -- only for displaying line numbers in the gutter.  The existing
+  -- all_old_line_map intentionally excludes context lines so that
+  -- _extract_code_context works correctly for old-side navigation.
+  local all_old_lnum_display = {}
   local display_lnum = 1 + header_offset
 
   for hunk_idx, hunk in ipairs(parsed.hunks) do
@@ -144,6 +149,9 @@ local function build_full_display(parsed)
       if l.new_lnum then
         all_line_map[display_lnum] = l.new_lnum
         all_new_to_display[l.new_lnum] = display_lnum
+      end
+      if l.old_lnum then
+        all_old_lnum_display[display_lnum] = l.old_lnum
       end
       if l.old_lnum and not l.new_lnum then
         -- Deleted line: only has old_lnum
@@ -167,6 +175,7 @@ local function build_full_display(parsed)
     all_old_line_map = all_old_line_map,
     all_old_to_display = all_old_to_display,
     all_line_type_map = all_line_type_map,
+    all_old_lnum_display = all_old_lnum_display,
   }
 end
 
@@ -220,6 +229,9 @@ local function render_current_display(buf, file, opts)
 
   set_buffer_lines(buf, display.lines)
   highlights.apply_diff_highlights(buf, display.line_types)
+  highlights.apply_inline_highlights(buf, display.lines, display.line_types)
+  highlights.apply_line_numbers(buf, display)
+  highlights.apply_signs(buf, display.line_types)
   highlights.update_treesitter(buf, file and file.path, display.visible_until)
 
   if s.notes_visible and file then
@@ -264,6 +276,8 @@ local function render_split_display(file, opts)
   if valid.buf(buf_old) then
     set_buffer_lines(buf_old, display_old.lines)
     highlights.apply_diff_highlights(buf_old, display_old.line_types)
+    highlights.apply_line_numbers_split(buf_old, display_old, "old")
+    highlights.apply_signs(buf_old, display_old.line_types)
     highlights.update_treesitter(buf_old, file and file.path, display_old.visible_until)
     if s.notes_visible and file then
       virtual.render_notes_for_side(buf_old, file.path, display_old, "old")
@@ -276,12 +290,23 @@ local function render_split_display(file, opts)
   if valid.buf(buf_new) then
     set_buffer_lines(buf_new, display_new.lines)
     highlights.apply_diff_highlights(buf_new, display_new.line_types)
+    highlights.apply_line_numbers_split(buf_new, display_new, "new")
+    highlights.apply_signs(buf_new, display_new.line_types)
     highlights.update_treesitter(buf_new, file and file.path, display_new.visible_until)
     if s.notes_visible and file then
       virtual.render_notes_for_side(buf_new, file.path, display_new, "new")
     else
       virtual.clear_extmarks(buf_new)
     end
+  end
+
+  -- Inline diff highlights need both panels (paired comparison)
+  if valid.buf(buf_old) and valid.buf(buf_new) then
+    highlights.apply_inline_highlights_split(
+      buf_old, buf_new,
+      display_old.lines, display_old.line_types,
+      display_new.lines, display_new.line_types
+    )
   end
 
   update_diff_title(file)
@@ -494,6 +519,7 @@ function M.show_file(idx)
         all_old_line_map = full_display.all_old_line_map,
         all_old_to_display = full_display.all_old_to_display,
         all_line_type_map = full_display.all_line_type_map,
+        all_old_lnum_display = full_display.all_old_lnum_display,
         visible_until = get_initial_visible_until(full_display.all_line_types, limits.max_diff_lines),
         truncation_line = truncation_line,
       })

@@ -15,6 +15,8 @@ Inline code review on any `git diff`, right inside Neovim and export to markdown
 
 **Navigation** — File explorer with badges and note counts, `]n`/`[n` and `]f`/`[f` bracket motions, `?` help window with all keymaps. Two explorer layouts: **flat** (filename first, directory dimmed) and **tree** (files grouped by directory), toggled with `t`.
 
+**Enhanced diff display** — Inline word-level highlighting shows exactly what changed within each line, gutter line numbers for old/new files, sign column with `+`/`-` markers, dimmed metadata lines. All features configurable.
+
 **Safety** — Unsaved-note protection on close, large diff pagination with configurable thresholds.
 
 ### Export Formats
@@ -234,6 +236,14 @@ require("codereview").setup({
   show_untracked = false,             -- show untracked files in review mode
   treesitter_max_lines = 5000,      -- disable treesitter highlighting above this line count
 
+  -- Diff display enhancements
+  show_line_numbers = true,         -- show old/new line numbers in the diff gutter
+  line_number_hl = "LineNr",        -- highlight group for gutter line numbers
+  inline_diff = true,               -- highlight changed characters within modified lines (DiffText)
+  inline_diff_max_len = 500,        -- skip inline diff for lines longer than this
+  show_diff_signs = false,           -- show +/- signs in the sign column
+  dim_metadata = true,              -- dim diff metadata lines (index, similarity, etc.)
+
   keymaps = {
     note = "n",                     -- smart add/edit note on current line
     toggle_virtual_text = "<leader>uh",
@@ -274,6 +284,25 @@ require("codereview").setup({
 ```
 
 Large diffs keep the current behavior when they fit within `max_diff_lines`. When a diff exceeds that limit, CodeReview renders the first slice, shows a truncation sentinel at the bottom, and each `load_more_diff` action reveals another `diff_page_size` lines.
+
+### Diff display enhancements
+
+CodeReview ships with several visual enhancements enabled by default. Set any of these to `false` to disable:
+
+```lua
+require("codereview").setup({
+  show_line_numbers = true,   -- old/new line numbers in the gutter
+  inline_diff = true,         -- word-level highlighting within changed lines
+  show_diff_signs = false,     -- +/- markers in the sign column
+  dim_metadata = true,        -- dim "index", "similarity" header lines
+})
+```
+
+**Inline diff** compares adjacent deleted/added line pairs character by character and highlights only the changed portion using the `DiffText` highlight group. Lines longer than `inline_diff_max_len` (default 500) fall back to full-line highlighting.
+
+**Line numbers** are rendered as inline virtual text showing the old-file and new-file line numbers side by side. In split mode, each panel shows its respective side's numbers.
+
+**Diff signs** place `+` and `-` markers in the Neovim sign column alongside added and deleted lines.
 
 ## Known Limitations
 
