@@ -112,13 +112,13 @@ describe("config", function()
     assert.equals("/tmp", config.options.review.path)
   end)
 
-  it("default export_format is 'inline'", function()
+  it("default export_format is 'default'", function()
     config.setup({})
-    assert.equals("inline", config.options.review.export_format)
+    assert.equals("default", config.options.review.export_format)
   end)
 
   it("accepts valid export_format values", function()
-    for _, fmt in ipairs({ "inline", "compact", "block" }) do
+    for _, fmt in ipairs({ "default", "table" }) do
       config.setup({ review = { export_format = fmt } })
       assert.equals(fmt, config.options.review.export_format)
     end

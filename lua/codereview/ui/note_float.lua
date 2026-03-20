@@ -226,6 +226,28 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
     end,
   })
 
+  -- BufWriteCmd: handle :w and :wq — save the note to the store.
+  -- buftype=acwrite requires this; without it :w errors with E676.
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = note_buf,
+    callback = function()
+      M.confirm()
+    end,
+  })
+
+  -- QuitPre: intercept :q and :q! so the note isn't lost silently.
+  -- Uses vim.v.event.abort (same pattern as layout quit handlers) to cancel
+  -- the quit, then shows the save/discard prompt synchronously.
+  vim.api.nvim_create_autocmd("QuitPre", {
+    buffer = note_buf,
+    callback = function()
+      if float_ctx and not closing then
+        vim.v.event.abort = true
+        M.ask_save_or_discard()
+      end
+    end,
+  })
+
   -- Keymaps (on note buffer only)
   local opts = { noremap = true, silent = true, buffer = note_buf }
 
@@ -237,6 +259,12 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
 
   -- Esc in normal mode: ask save/discard
   vim.keymap.set("n", "<Esc>", function()
+    M.ask_save_or_discard()
+  end, opts)
+
+  -- q in normal mode: ask save/discard (consistent with layout quit behavior)
+  local km = config.options.keymaps
+  vim.keymap.set("n", km.quit, function()
     M.ask_save_or_discard()
   end, opts)
 

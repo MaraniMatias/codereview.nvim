@@ -46,7 +46,7 @@ explorer_layout = "flat", -- "flat" (filename first + dimmed dir) | "tree" (grou
 		default_filename = "review-%Y-%m-%d.md",
 		path = nil, -- nil = git root
 		context_lines = 0, -- extra lines above/below when auto-reading code from disk
-		export_format = "inline", -- "inline" | "compact" | "block"
+		export_format = "default", -- "default" | "table"
 	},
 }
 
@@ -60,7 +60,7 @@ end
 local VALID_DIFF_VIEWS      = { unified = true, split = true }
 local VALID_BORDERS         = { rounded = true, single = true, double = true, solid = true, none = true }
 local VALID_EXPLORER_LAYOUTS = { flat = true, tree = true }
-local VALID_EXPORT_FORMATS  = { inline = true, compact = true, block = true }
+local VALID_EXPORT_FORMATS  = { default = true, table = true }
 
 -- Known keymap keys, to catch typos early
 local KNOWN_KEYMAP_KEYS = {
@@ -216,7 +216,7 @@ virtual_text_truncate_len = {
 			["review.export_format"] = {
 				opts.review.export_format,
 				function(v) return v == nil or VALID_EXPORT_FORMATS[v] ~= nil end,
-				'expected "inline", "compact", or "block"',
+				'expected "default" or "table"',
 			},
 		})
 	end

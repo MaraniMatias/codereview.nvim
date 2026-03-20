@@ -17,48 +17,32 @@ Inline code review on any `git diff`, right inside Neovim and export to markdown
 
 **Safety** — Unsaved-note protection on close, large diff pagination with configurable thresholds.
 
-### Export Format
+### Export Formats
 
-Running `:w` or `:W` generates a Markdown file. Three formats are available via `review.export_format`:
+Running `:w` or `:W` generates a review file. Two formats are available via `review.export_format`:
 
-**`"inline"` (default)** — ref + first line of code, note text below:
-
-```markdown
-# Review 2026-03-14
-
-src/foo.js:0 `const result = a + b;`
-revisit this calculation
-
-handlers/user.js:67 `function handleUser(user) {`
-null check `user` before `.name`
-add logging for failed cases
-```
-
-**`"compact"`** — one line per note, no code:
-
-```markdown
-# Review 2026-03-14
-
-src/foo.js:0-1 - revisit this calculation
-handlers/user.js:67-72 - add null check for `user` before accessing `.name`
-```
-
-**`"block"`** — full code block per note:
+**`"default"`** — markdown with headings per file, code blocks with syntax highlighting, and enriched header:
 
 ````markdown
-# Review 2026-03-14
+# Code Review 2026-03-14
 
-`src/foo.js`
+> `main..feature` — 2 files, 3 notes
 
-```text{0,1}
+## src/foo.js
+
+**L10**
+
+```js
 const result = a + b;
 ```
 
 revisit this calculation
 
-`handlers/user.js`
+---
 
-```text{67,72}
+**L67-72**
+
+```js
 function handleUser(user) {
   if (user.name) {
     return user.name;
@@ -66,8 +50,27 @@ function handleUser(user) {
 }
 ```
 
-Add a null check for `user` before accessing `.name`
+null check `user` before `.name`
+
+## handlers/user.js
+
+**L120**
+
+```js
+logger.info(event);
+```
+
+consider structured logging
 ````
+
+**`"table"`** — pipe-separated with header, one line per note, optimized for LLM token efficiency:
+
+```txt
+file|line|side|text
+src/foo.js|10|new|revisit this calculation
+src/foo.js|67-72|new|null check user before .name
+handlers/user.js|120|new|consider structured logging
+```
 
 ## Quick Start
 
@@ -261,7 +264,7 @@ require("codereview").setup({
     default_filename = "review-%Y-%m-%d.md",
     path = nil,                     -- nil = git root
     context_lines = 0,              -- extra lines above/below when auto-reading code from disk
-    export_format = "inline",       -- "inline" | "compact" | "block"
+    export_format = "default",      -- "default" | "table"
   },
 })
 ```
