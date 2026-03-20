@@ -33,6 +33,7 @@ local DEFAULT_STATUS_ICONS = {
 	R = "→",
 	C = "+",
 	U = "?",
+	["?"] = "?",
 }
 
 local function get_status_icons()

@@ -518,6 +518,8 @@ function M._get_diff_for_file(file, callback)
     else
       git.get_file_diff(s.root, file, {}, callback)  -- working tree diff for non-diffed files
     end
+  elseif file.status == "?" then
+    git.get_untracked_file_diff(s.root, file.path, callback)
   else
     git.get_file_diff(s.root, file, s.diff_args, callback)
   end

@@ -229,3 +229,81 @@ describe("git – get_staged_diff()", function()
     assert.is_nil(result)
   end)
 end)
+
+describe("git – get_untracked_files()", function()
+  local orig_run
+
+  before_each(function()
+    orig_run = git._run
+  end)
+
+  after_each(function()
+    git._run = orig_run
+  end)
+
+  it("parses untracked file paths", function()
+    stub_run("new_file.lua\nsrc/other.lua\n", 0)
+    local files
+    git.get_untracked_files("/root", function(f) files = f end)
+    assert.equals(2, #files)
+    assert.equals("?", files[1].status)
+    assert.equals("new_file.lua", files[1].path)
+    assert.equals("?", files[2].status)
+    assert.equals("src/other.lua", files[2].path)
+  end)
+
+  it("returns empty list when no untracked files", function()
+    stub_run("", 0)
+    local files
+    git.get_untracked_files("/root", function(f) files = f end)
+    assert.same({}, files)
+  end)
+
+  it("calls back with nil and notifies on error", function()
+    stub_run("", 128, "fatal: not a git repository")
+    local notified = false
+    local orig_notify = vim.notify
+    vim.notify = function(_, level)
+      if level == vim.log.levels.WARN then notified = true end
+    end
+
+    local result = "sentinel"
+    git.get_untracked_files("/root", function(f) result = f end)
+
+    vim.notify = orig_notify
+    assert.is_nil(result)
+    assert.is_true(notified)
+  end)
+end)
+
+describe("git – get_untracked_file_diff()", function()
+  local orig_run
+
+  before_each(function()
+    orig_run = git._run
+  end)
+
+  after_each(function()
+    git._run = orig_run
+  end)
+
+  it("calls _run with correct arguments for no-index diff", function()
+    local captured_argv
+    git._run = function(argv, callback)
+      captured_argv = argv
+      -- Simulate exit code 1 (files differ) with a valid diff
+      callback("--- /dev/null\n+++ b/new.lua\n@@ -0,0 +1 @@\n+hello\n", 1, "")
+    end
+
+    local result
+    git.get_untracked_file_diff("/root", "new.lua", function(d) result = d end)
+    assert.is_not_nil(result)
+    assert.truthy(captured_argv)
+    -- Should contain --no-index
+    local has_no_index = false
+    for _, v in ipairs(captured_argv) do
+      if v == "--no-index" then has_no_index = true end
+    end
+    assert.is_true(has_no_index)
+  end)
+end)

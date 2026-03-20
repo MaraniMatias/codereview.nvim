@@ -12,6 +12,24 @@ local refresh_gen = 0
 -- How long (ms) before an async lock auto-resets if the callback never fires.
 local ASYNC_TIMEOUT_MS = 10000
 
+--- Build a human-readable summary like "3 changed + 2 untracked file(s)".
+--- Exposed as M._build_file_summary for testing.
+---@param files table[]
+---@return string
+function M._build_file_summary(files)
+  local untracked_count = 0
+  for _, f in ipairs(files) do
+    if f.status == "?" then untracked_count = untracked_count + 1 end
+  end
+  local changed_count = #files - untracked_count
+
+  local parts = {}
+  if changed_count > 0 then table.insert(parts, changed_count .. " changed") end
+  if untracked_count > 0 then table.insert(parts, untracked_count .. " untracked") end
+  if #parts == 0 then return "0 file(s)" end
+  return table.concat(parts, " + ") .. " file(s)"
+end
+
 local function ensure_config()
   if vim.tbl_isempty(config.options) then
     config.setup({})
@@ -199,24 +217,42 @@ function M.open(args)
     s.root = root
     git.get_changed_files(root, s.diff_args, function(files)
       if open_gen ~= my_gen then return end
-      opening = false
       if files == nil then
+        opening = false
         state.reset()
-        return
-      end
-      if #files == 0 then
-        state.reset()
-        vim.notify("No changed files found (git diff " .. args_display .. ")", vim.log.levels.INFO)
         return
       end
 
-      git.get_binary_files(root, s.diff_args, function(binaries)
-        mark_binary_files(files, binaries)
-        s.files = normalize_files(files)
-        s.current_file_idx = 1
-        local view_label = config.options.diff_view == "split" and " [split]" or ""
-        open_layout("codereview" .. view_label .. ": " .. #files .. " changed file(s) | " .. args_display)
-      end)
+      local function proceed_with_files(all_files)
+        opening = false
+        if #all_files == 0 then
+          state.reset()
+          vim.notify("No changed files found (git diff " .. args_display .. ")", vim.log.levels.INFO)
+          return
+        end
+
+        git.get_binary_files(root, s.diff_args, function(binaries)
+          mark_binary_files(all_files, binaries)
+          s.files = normalize_files(all_files)
+          s.current_file_idx = 1
+          local view_label = config.options.diff_view == "split" and " [split]" or ""
+
+          local summary = M._build_file_summary(all_files)
+          open_layout("codereview" .. view_label .. ": " .. summary .. " | " .. args_display)
+        end)
+      end
+
+      if config.options.show_untracked then
+        git.get_untracked_files(root, function(untracked)
+          if open_gen ~= my_gen then return end
+          if untracked then
+            vim.list_extend(files, untracked)
+          end
+          proceed_with_files(files)
+        end)
+      else
+        proceed_with_files(files)
+      end
     end)
   end)
 end
@@ -398,7 +434,8 @@ function M.refresh()
     end
 
     diff_view.show_file(s.current_file_idx)
-    vim.notify("codereview: refreshed", vim.log.levels.INFO)
+
+    vim.notify("codereview: refreshed — " .. M._build_file_summary(s.files), vim.log.levels.INFO)
   end
 
   if s.mode == "review" then
@@ -408,10 +445,25 @@ function M.refresh()
         apply_refresh(nil)
         return
       end
-      git.get_binary_files(s.root, s.diff_args, function(binaries)
-        mark_binary_files(files, binaries)
-        apply_refresh(files)
-      end)
+
+      local function proceed_refresh(all_files)
+        git.get_binary_files(s.root, s.diff_args, function(binaries)
+          mark_binary_files(all_files, binaries)
+          apply_refresh(all_files)
+        end)
+      end
+
+      if config.options.show_untracked then
+        git.get_untracked_files(s.root, function(untracked)
+          if refresh_gen ~= my_gen then return end
+          if untracked then
+            vim.list_extend(files, untracked)
+          end
+          proceed_refresh(files)
+        end)
+      else
+        proceed_refresh(files)
+      end
     end)
   elseif s.mode == "difftool" and s.local_dir and s.remote_dir then
     git.scan_dir_diff(s.local_dir, s.remote_dir, apply_refresh)

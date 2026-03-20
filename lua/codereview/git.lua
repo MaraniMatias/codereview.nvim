@@ -294,6 +294,27 @@ function M.get_changed_files(root, diff_args, callback)
   end)
 end
 
+-- Get list of untracked files (not yet added to git).
+-- Returns via callback: list of { path, status = "?" }
+function M.get_untracked_files(root, callback)
+  M._run(_git_argv(root, { "ls-files", "--others", "--exclude-standard" }), function(stdout, exit_code, stderr)
+    if exit_code ~= 0 then
+      vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+      callback(nil)
+      return
+    end
+
+    local lines = vim.split(stdout, "\n", { trimempty = true })
+    local files = {}
+    for _, path in ipairs(lines) do
+      if path ~= "" then
+        table.insert(files, { path = path, status = "?" })
+      end
+    end
+    callback(files)
+  end)
+end
+
 -- Detect which files are binary using git diff --numstat.
 -- Returns via callback: table (set) of paths that are binary.
 function M.get_binary_files(root, diff_args, callback)
@@ -390,6 +411,25 @@ function M.get_file_diff(root, file_entry, diff_args, callback)
       return
     end
     callback(result)
+  end)
+end
+
+-- Get diff for an untracked file (shows entire content as additions).
+function M.get_untracked_file_diff(root, path, callback)
+  local empty_file = _create_empty_tempfile()
+  if not empty_file then
+    callback(nil)
+    return
+  end
+
+  local full_path = root .. "/" .. path
+  run_no_index_diff(empty_file, full_path, {
+    status = "A",
+    old_label = "/dev/null",
+    new_label = "b/" .. path,
+    cleanup_files = { empty_file },
+  }, function(result)
+    callback(result.diff)
   end)
 end
 
