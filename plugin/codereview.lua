@@ -11,9 +11,9 @@ end, {
   desc = "Open codereview code review for current repository",
 })
 
--- :W — save directly to auto-generated filename (no prompt)
+-- :W — save directly to auto-generated filename when notes exist
 vim.api.nvim_create_user_command("W", function()
   require("codereview.review.exporter").save_direct()
 end, {
-  desc = "Save review directly to auto-generated markdown file",
+  desc = "Save review directly to auto-generated markdown file when notes exist",
 })

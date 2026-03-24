@@ -131,6 +131,14 @@ local function build_header(all_notes)
 	return lines
 end
 
+local function abort_empty_export(on_save)
+	vim.notify("No notes to export", vim.log.levels.INFO)
+	if on_save then
+		on_save(false)
+	end
+	return false
+end
+
 -- ---------------------------------------------------------------------------
 -- Format: "human" — markdown with headings per file, code blocks, line refs
 -- ---------------------------------------------------------------------------
@@ -239,6 +247,10 @@ end
 
 -- Save to a file
 function M.save(filepath)
+	if not store.has_any() then
+		return abort_empty_export()
+	end
+
 	local content = M.generate()
 	local f = io.open(filepath, "w")
 	if not f then
@@ -288,6 +300,10 @@ end
 -- When the file already exists, offers overwrite / rename / cancel instead of
 -- showing a passive warning.
 function M.save_direct()
+	if not store.has_any() then
+		return abort_empty_export()
+	end
+
 	local s = state.get()
 	local cfg = config.options
 	local default_name = os.date(cfg.review.default_filename)
@@ -389,26 +405,16 @@ function M._prompt_filename(save_dir, default_name, on_save)
 end
 
 -- Save with a vim.ui.input prompt.
--- Warns before saving an empty review, then delegates to _prompt_filename.
+-- Requires at least one note before delegating to _prompt_filename.
 function M.save_with_prompt(on_save)
 	local s = state.get()
 	local cfg = config.options
 	local save_dir = normalize_dir(cfg.review.path or s.root or vim.fn.getcwd())
 	local default_name = os.date(cfg.review.default_filename)
 
-	local all_notes = store.get_all()
-
 	vim.schedule(function()
-		if #all_notes == 0 then
-			-- Warn the user that there are no notes before saving
-			if prompt.confirm("No notes written yet — save empty review?") then
-				M._prompt_filename(save_dir, default_name, on_save)
-			else
-				vim.notify("Save cancelled", vim.log.levels.INFO)
-				if on_save then
-					on_save(false)
-				end
-			end
+		if not store.has_any() then
+			abort_empty_export(on_save)
 		else
 			M._prompt_filename(save_dir, default_name, on_save)
 		end

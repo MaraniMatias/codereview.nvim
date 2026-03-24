@@ -109,12 +109,13 @@ handlers/user.js|120|new|consider structured logging
 
 | Command | Effect                                        |
 | ------- | --------------------------------------------- |
-| `:w`    | Opens save prompt, writes the markdown review |
-| `:W`    | Saves directly to the auto-generated filename |
+| `:w`    | Opens save prompt and writes the markdown review when notes exist |
+| `:W`    | Saves directly to the auto-generated filename when notes exist |
 | `:q`    | Warns if you have unsaved notes               |
 | `:q!`   | Forces the review tab to close                |
 
 Notes live in memory for the current session only; exporting saves the Markdown review, not the in-editor note state.
+If there are no notes yet, `:w` and `:W` do not create an empty Markdown file.
 
 ### As git difftool
 

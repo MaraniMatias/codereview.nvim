@@ -273,3 +273,88 @@ describe("review.exporter.generate() — table format", function()
     assert.truthy(out:find("b.lua|3-5|note b", 1, true))
   end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- Save behavior
+-- ---------------------------------------------------------------------------
+
+describe("review.exporter.save() — empty reviews", function()
+  local orig_notify
+  local orig_schedule
+  local orig_input
+
+  before_each(function()
+    state.reset()
+    store.reset_cache()
+    config.setup({})
+    orig_notify = vim.notify
+    orig_schedule = vim.schedule
+    orig_input = vim.ui.input
+  end)
+
+  after_each(function()
+    vim.notify = orig_notify
+    vim.schedule = orig_schedule
+    vim.ui.input = orig_input
+  end)
+
+  it("save() returns false and does not create a file when there are no notes", function()
+    local filepath = vim.fn.tempname()
+    local notified
+
+    vim.notify = function(message, level)
+      notified = { message = message, level = level }
+    end
+
+    local ok = exporter.save(filepath)
+
+    assert.is_false(ok)
+    assert.equals(0, vim.fn.filereadable(filepath))
+    assert.same({ message = "No notes to export", level = vim.log.levels.INFO }, notified)
+  end)
+
+  it("save_direct() returns false and does not create the auto-generated file when there are no notes", function()
+    local save_dir = vim.fn.tempname()
+    local filename = "review-empty.md"
+    local filepath = save_dir .. "/" .. filename
+    local notified
+
+    vim.fn.mkdir(save_dir, "p")
+    vim.notify = function(message, level)
+      notified = { message = message, level = level }
+    end
+    config.setup({ review = { path = save_dir, default_filename = filename } })
+
+    local ok = exporter.save_direct()
+
+    assert.is_false(ok)
+    assert.equals(0, vim.fn.filereadable(filepath))
+    assert.same({ message = "No notes to export", level = vim.log.levels.INFO }, notified)
+
+    vim.fn.delete(save_dir, "rf")
+  end)
+
+  it("save_with_prompt() cancels immediately when there are no notes", function()
+    local notified
+    local prompted = false
+    local callback_result = nil
+
+    vim.notify = function(message, level)
+      notified = { message = message, level = level }
+    end
+    vim.schedule = function(fn)
+      fn()
+    end
+    vim.ui.input = function(_, _)
+      prompted = true
+    end
+
+    exporter.save_with_prompt(function(ok)
+      callback_result = ok
+    end)
+
+    assert.is_false(prompted)
+    assert.is_false(callback_result)
+    assert.same({ message = "No notes to export", level = vim.log.levels.INFO }, notified)
+  end)
+end)
