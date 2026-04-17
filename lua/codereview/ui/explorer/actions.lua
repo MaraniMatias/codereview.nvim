@@ -277,7 +277,7 @@ function M.show_help()
     " ?             This help",
     " ──────────────────────────────",
     " Diff view",
-    " " .. (km.note or "n") .. "             Add note",
+    " " .. (km.note or "a") .. "             Add note",
     " " .. (km.next_note or "]n") .. " / " .. (km.prev_note or "[n") .. "         Next / prev note",
     " " .. (km.next_file or "]f") .. " / " .. (km.prev_file or "[f") .. "         Next / prev file",
     " " .. (km.load_more_diff or "L") .. "             Load more diff",

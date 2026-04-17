@@ -72,7 +72,7 @@ handlers/user.js|120|new|consider structured logging
 
 1. Install the plugin (see [Installation](#installation))
 2. Open a review: `:CodeReview`
-3. Navigate files with `j`/`k`, press `n` on any diff line to add a note, export with `:w`
+3. Navigate files with `j`/`k`, press `a` on any diff line to add a note, export with `:w`
 
 ## Installation
 
@@ -176,8 +176,8 @@ All keybindings are remappable via `keymaps` in your setup config.
 
 | Key          | Action                                 |
 | ------------ | -------------------------------------- |
-| `n`          | Smart add or edit note on current line |
-| `V` then `n` | Add note from visual selection         |
+| `a`          | Smart add or edit note on current line |
+| `V` then `a` | Add note from visual selection         |
 | `]n` / `[n`  | Next or previous note in current file  |
 | `]f` / `[f`  | Next or previous file                  |
 | `L`          | Load more lines for a truncated diff   |
@@ -246,7 +246,7 @@ require("codereview").setup({
   dim_metadata = true,              -- dim diff metadata lines (index, similarity, etc.)
 
   keymaps = {
-    note = "n",                     -- smart add/edit note on current line
+    note = "a",                     -- smart add/edit note on current line
     toggle_virtual_text = "<leader>uh",
     next_note = "]n",
     prev_note = "[n",

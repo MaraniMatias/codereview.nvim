@@ -42,6 +42,9 @@ local config_stub = {
   options = {
     border = "rounded",
     diff_view = "unified",
+    keymaps = {
+      quit = "q",
+    },
   },
   is_split_mode = function() return false end,
 }
@@ -403,28 +406,29 @@ describe("note_float – keymap registration", function()
     restore_vim_stubs()
   end)
 
-  it("only registers <Esc> keymaps (insert and normal)", function()
+  it("registers <Esc> and quit keymaps", function()
     open_note_with_text("test")
+    local seen = {}
     for _, km in ipairs(registered_keymaps) do
-      assert.equals("<Esc>", km.key, "only <Esc> keymaps should be registered, got: " .. km.key)
-    end
-    assert.is_true(#registered_keymaps >= 2, "should register <Esc> in at least 2 modes")
-  end)
-
-  it("does NOT register <C-s>, q, or <C-d> keymaps", function()
-    open_note_with_text("test")
-    for _, km in ipairs(registered_keymaps) do
+      seen[km.mode .. ":" .. km.key] = true
       assert.not_equals("<C-s>", km.key, "<C-s> should NOT be registered")
-      assert.not_equals("q", km.key, "q should NOT be registered")
       assert.not_equals("<C-d>", km.key, "<C-d> should NOT be registered")
     end
+
+    assert.is_true(seen["i:<Esc>"], "should register insert-mode <Esc>")
+    assert.is_true(seen["n:<Esc>"], "should register normal-mode <Esc>")
+    assert.is_true(seen["n:q"], "should register normal-mode quit key")
   end)
 
-  it("does NOT register BufWriteCmd autocmd", function()
+  it("registers BufWriteCmd autocmd for :w support", function()
     open_note_with_text("test")
+    local found = false
     for _, ac in ipairs(registered_autocmds) do
-      assert.not_equals("BufWriteCmd", ac.event, "BufWriteCmd should NOT be registered")
+      if ac.event == "BufWriteCmd" then
+        found = true
+      end
     end
+    assert.is_true(found, "BufWriteCmd should be registered")
   end)
 end)
 
