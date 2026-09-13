@@ -73,6 +73,16 @@ describe("git – get_changed_files()", function()
     assert.equals("D", files[3].status)
   end)
 
+  it("parses NUL output normalized to alternating lines by Neovim 0.9", function()
+    stub_run("M\nfirst.lua\nA\nsecond.lua\nD\nthird.lua\n", 0)
+    local files
+    git.get_changed_files("/root", {}, function(f) files = f end)
+    assert.equals(3, #files)
+    assert.equals("first.lua", files[1].path)
+    assert.equals("A", files[2].status)
+    assert.equals("third.lua", files[3].path)
+  end)
+
   it("parses rename lines (R100 format)", function()
     stub_run("R100\told/path.lua\tnew/path.lua\n", 0)
     local files
@@ -81,6 +91,30 @@ describe("git – get_changed_files()", function()
     assert.equals("R", files[1].status)
     assert.equals("new/path.lua", files[1].path)
     assert.equals("old/path.lua", files[1].old_path)
+  end)
+
+  it("parses NUL-delimited paths without shell quoting", function()
+    stub_run("M\tpath with\tcontrol.lua\0A\tline\nname.lua\0", 0)
+    local files
+    git.get_changed_files("/root", {}, function(f) files = f end)
+    assert.equals("path with\tcontrol.lua", files[1].path)
+    assert.equals("line\nname.lua", files[2].path)
+  end)
+
+  it("parses Git's NUL-delimited rename records", function()
+    stub_run("R100\0old\tname.lua\0new\nname.lua\0", 0)
+    local files
+    git.get_changed_files("/root", {}, function(f) files = f end)
+    assert.equals("old\tname.lua", files[1].old_path)
+    assert.equals("new\nname.lua", files[1].path)
+  end)
+
+  it("parses NUL-delimited rename records with inline status paths", function()
+    stub_run("R100\told.lua\0new.lua\0", 0)
+    local files
+    git.get_changed_files("/root", {}, function(f) files = f end)
+    assert.equals("old.lua", files[1].old_path)
+    assert.equals("new.lua", files[1].path)
   end)
 
   it("returns empty list when output is empty", function()
@@ -138,6 +172,13 @@ describe("git – get_binary_files()", function()
     local binaries
     git.get_binary_files("/root", {}, function(b) binaries = b end)
     assert.same({}, binaries)
+  end)
+
+  it("parses NUL-delimited binary records", function()
+    stub_run("-\t-\timage\tfile.png\0", 0)
+    local binaries
+    git.get_binary_files("/root", {}, function(b) binaries = b end)
+    assert.is_true(binaries["image\tfile.png"])
   end)
 end)
 
@@ -227,6 +268,35 @@ describe("git – get_staged_diff()", function()
     local result = "sentinel"
     git.get_staged_diff("/root", "file.lua", function(d) result = d end)
     assert.is_nil(result)
+  end)
+end)
+
+describe("git – get_file_old()", function()
+  local orig_run
+
+  before_each(function() orig_run = git._run end)
+  after_each(function() git._run = orig_run end)
+
+  it("uses argv for staged preimages", function()
+    local captured
+    git._run = function(argv, callback)
+      captured = argv
+      callback("old", 0, "")
+    end
+    local content
+    git.get_file_old("/root", "file with spaces.lua", { "--staged" }, function(value) content = value end)
+    assert.equals("old", content)
+    assert.equals("HEAD:file with spaces.lua", captured[#captured])
+  end)
+
+  it("uses the left side of a two-commit range", function()
+    local captured
+    git._run = function(argv, callback)
+      captured = argv
+      callback("old", 0, "")
+    end
+    git.get_file_old("/root", "file.lua", { "main..feature" }, function() end)
+    assert.equals("main:file.lua", captured[#captured])
   end)
 end)
 

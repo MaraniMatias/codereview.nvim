@@ -1,4 +1,6 @@
 local M = {}
+local DEFAULT_TIMEOUT_MS = 10000
+local MAX_COMPARE_JOBS = 8
 
 local function _append_output(chunks, data)
   if not data then return end
@@ -7,7 +9,10 @@ local function _append_output(chunks, data)
   end
 end
 
-local function _join_output(chunks)
+local function _join_output(chunks, raw)
+  if raw then
+    return table.concat(chunks or {})
+  end
   local lines = vim.deepcopy(chunks or {})
   if lines[#lines] == "" then
     table.remove(lines, #lines)
@@ -27,9 +32,43 @@ end
 
 -- Run a process asynchronously and capture stdout/stderr.
 -- Returns: stdout (string), exit_code (number), stderr (string)
-function M._run(argv, callback)
+function M._run(argv, callback, opts)
+  opts = opts or {}
+
+  -- vim.system preserves NUL bytes and runs argv directly.  Keep the
+  -- jobstart fallback for the advertised Neovim 0.9 minimum, where the
+  -- channel API normalizes NUL output to line breaks.
+  if vim.system then
+    local system_opts = { text = true }
+    if opts.timeout ~= false then
+      system_opts.timeout = opts.timeout or DEFAULT_TIMEOUT_MS
+    end
+    vim.system(argv, system_opts, function(result)
+      vim.schedule(function()
+        callback(result.stdout or "", result.code or 1, result.stderr or "")
+      end)
+    end)
+    return
+  end
+
   local stdout = {}
   local stderr = {}
+  local finished = false
+  local timer
+
+  local function finish(stdout_text, exit_code, stderr_text)
+    if finished then return end
+    finished = true
+    if timer then
+      timer:stop()
+      timer:close()
+      timer = nil
+    end
+    vim.schedule(function()
+      callback(stdout_text, exit_code, stderr_text)
+    end)
+  end
+
   local job_id = vim.fn.jobstart(argv, {
     stdout_buffered = true,
     stderr_buffered = true,
@@ -40,17 +79,92 @@ function M._run(argv, callback)
       _append_output(stderr, data)
     end,
     on_exit = function(_, exit_code)
-      vim.schedule(function()
-        callback(_join_output(stdout), exit_code, _join_output(stderr))
-      end)
+      finish(_join_output(stdout, opts.raw), exit_code, _join_output(stderr, opts.raw))
     end,
   })
 
   if job_id <= 0 then
-    vim.schedule(function()
-      callback("", 127, "codereview: failed to start process")
-    end)
+    finish("", 127, "codereview: failed to start process")
+    return
   end
+
+  if opts.timeout ~= false then
+    timer = vim.defer_fn(function()
+      if finished then return end
+      vim.fn.jobstop(job_id)
+      finish("", 124, "codereview: process timed out")
+    end, opts.timeout or DEFAULT_TIMEOUT_MS)
+  end
+end
+
+local function _split_nul(text)
+  local result = {}
+  for token in (text or ""):gmatch("([^%z]+)") do
+    table.insert(result, token)
+  end
+  return result
+end
+
+local function _parse_name_status(text)
+  local files = {}
+  local nul = text:find("\0", 1, true) ~= nil
+  local tokens = nul and _split_nul(text) or vim.split(text, "\n", { trimempty = true })
+  -- jobstart() on Neovim 0.9 normalizes NUL bytes to line breaks.  In that
+  -- fallback mode Git's status and paths arrive as alternating tokens rather
+  -- than tab-separated records.
+  local line_format = not nul and tokens[1] and tokens[1]:find("\t", 1, true) ~= nil
+  local i = 1
+
+  while i <= #tokens do
+    local status = tokens[i]
+    local code, inline_path = status:match("^([A-Z]%d*)\t(.*)$")
+    code = (code or status:sub(1, 1)):sub(1, 1)
+    if nul and (code == "R" or code == "C") then
+      if inline_path and tokens[i + 1] then
+        table.insert(files, { path = tokens[i + 1], old_path = inline_path, status = code })
+        i = i + 2
+      elseif tokens[i + 2] then
+        table.insert(files, { path = tokens[i + 2], old_path = tokens[i + 1], status = code })
+        i = i + 3
+      else
+        i = i + 1
+      end
+    elseif not nul and line_format then
+      local rstatus, old_path, new_path = status:match("^(R%d*)\t(.+)\t(.+)$")
+      if rstatus then
+        table.insert(files, { path = new_path, old_path = old_path, status = "R" })
+      else
+        local plain_code, path = status:match("^([MADRCU])\t(.+)$")
+        if plain_code and path then
+          table.insert(files, { path = path, status = plain_code })
+        end
+      end
+      i = i + 1
+    elseif not nul then
+      if (code == "R" or code == "C") and tokens[i + 2] then
+        table.insert(files, { path = tokens[i + 2], old_path = tokens[i + 1], status = code })
+        i = i + 3
+      elseif tokens[i + 1] then
+        table.insert(files, { path = tokens[i + 1], status = code })
+        i = i + 2
+      else
+        i = i + 1
+      end
+    else
+      local path
+      if nul then
+        path = inline_path or tokens[i + 1]
+      else
+        code, path = status:match("^([MADRCU])\t(.+)$")
+      end
+      if code and path and code:match("^[MADRCU]$") then
+        table.insert(files, { path = path, status = code })
+      end
+      i = i + (nul and (inline_path and 1 or 2) or 1)
+    end
+  end
+
+  return files
 end
 
 -- Classify a git stderr message into a human-readable error
@@ -228,14 +342,15 @@ local function _to_diff_label(prefix, path)
 end
 
 local function _scan_dir(dir, callback)
-  M._run({ "find", dir, "-type", "f" }, function(stdout, exit_code, _)
+  M._run({ "find", dir, "-type", "f", "-print0" }, function(stdout, exit_code, _)
     if exit_code ~= 0 then
       vim.notify("codereview: failed to scan difftool directories", vim.log.levels.WARN)
       callback(nil)
       return
     end
-    callback(vim.split(stdout, "\n", { trimempty = true }))
-  end)
+    callback(stdout:find("\0", 1, true) and _split_nul(stdout)
+      or vim.split(stdout, "\n", { trimempty = true }))
+  end, { raw = true })
 end
 
 local function _is_visible_difftool_path(rel)
@@ -266,7 +381,7 @@ end
 -- diff_args: list of git diff arguments (e.g. {"HEAD"}, {"--staged"}, {"main..feature"})
 -- Returns via callback: list of { path, status } where status is "M", "A", "D", "R", "C", "U"
 function M.get_changed_files(root, diff_args, callback)
-  local argv = { "diff", "--name-status" }
+  local argv = { "diff", "--name-status", "-z" }
   vim.list_extend(argv, diff_args or {})
 
   M._run(_git_argv(root, argv), function(stdout, exit_code, stderr)
@@ -276,49 +391,35 @@ function M.get_changed_files(root, diff_args, callback)
       return
     end
 
-    local lines = vim.split(stdout, "\n", { trimempty = true })
-    local files = {}
-    for _, line in ipairs(lines) do
-      local rstatus, old_path, new_path = line:match("^(R%d*)\t(.+)\t(.+)$")
-      if rstatus then
-        table.insert(files, { path = new_path, old_path = old_path, status = "R" })
-      else
-        local status, path = line:match("^([MADRCU])\t(.+)$")
-        if status and path then
-          table.insert(files, { path = path, status = status })
-        end
-      end
-    end
-
-    callback(files)
-  end)
+    callback(_parse_name_status(stdout))
+  end, { raw = true })
 end
 
 -- Get list of untracked files (not yet added to git).
 -- Returns via callback: list of { path, status = "?" }
 function M.get_untracked_files(root, callback)
-  M._run(_git_argv(root, { "ls-files", "--others", "--exclude-standard" }), function(stdout, exit_code, stderr)
+  M._run(_git_argv(root, { "ls-files", "--others", "--exclude-standard", "-z" }), function(stdout, exit_code, stderr)
     if exit_code ~= 0 then
       vim.notify(_classify_error(stderr), vim.log.levels.WARN)
       callback(nil)
       return
     end
 
-    local lines = vim.split(stdout, "\n", { trimempty = true })
     local files = {}
-    for _, path in ipairs(lines) do
+    local paths = stdout:find("\0", 1, true) and _split_nul(stdout) or vim.split(stdout, "\n", { trimempty = true })
+    for _, path in ipairs(paths) do
       if path ~= "" then
         table.insert(files, { path = path, status = "?" })
       end
     end
     callback(files)
-  end)
+  end, { raw = true })
 end
 
 -- Detect which files are binary using git diff --numstat.
 -- Returns via callback: table (set) of paths that are binary.
 function M.get_binary_files(root, diff_args, callback)
-  local argv = { "diff", "--numstat" }
+  local argv = { "diff", "--numstat", "--no-renames", "-z" }
   vim.list_extend(argv, diff_args or {})
 
   M._run(_git_argv(root, argv), function(stdout, exit_code, _)
@@ -328,17 +429,18 @@ function M.get_binary_files(root, diff_args, callback)
     end
 
     local binaries = {}
-    for _, line in ipairs(vim.split(stdout, "\n", { trimempty = true })) do
+    local records = stdout:find("\0", 1, true) and _split_nul(stdout) or vim.split(stdout, "\n", { trimempty = true })
+    for _, line in ipairs(records) do
       local path = line:match("^%-\t%-\t(.+)$")
       if path then
         -- Handle renames: "{prefix/old => prefix/new}" or "old => new"
         local new_path = path:match("=>%s*(.-)%s*}") or path:match("=>%s*(.+)$")
-        binaries[vim.trim(new_path or path)] = true
+        binaries[new_path or path] = true
       end
     end
 
     callback(binaries)
-  end)
+  end, { raw = true })
 end
 
 -- Get the old content of a file (before changes).
@@ -353,31 +455,51 @@ function M.get_file_old(root, path, diff_args, callback)
     end
   end
 
-  local argv
-  if is_staged then
-    argv = { "show", ":" .. path }
-  else
-    local ref = "HEAD"
-    for _, arg in ipairs(diff_args or {}) do
-      if not arg:match("^%-") then
-        ref = arg
-        break
+  local function run_show(ref)
+    local object = ref .. ":" .. path
+    M._run(_git_argv(root, { "show", object }), function(content, exit_code, stderr)
+      if exit_code ~= 0 then
+        if not stderr:find("exists on disk, but not in", 1, true)
+            and not stderr:find("does not exist in", 1, true) then
+          vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+        end
+        callback(nil)
+        return
       end
-    end
-    argv = { "show", ref .. ":" .. path }
+      callback(content)
+    end)
   end
 
-  M._run(_git_argv(root, argv), function(content, exit_code, stderr)
-    if exit_code ~= 0 then
-      if not stderr:find("exists on disk, but not in", 1, true)
-          and not stderr:find("does not exist in", 1, true) then
-        vim.notify(_classify_error(stderr), vim.log.levels.WARN)
-      end
-      callback(nil)
-      return
+  local ref = "HEAD"
+  if is_staged then
+    -- The old side of a staged diff is HEAD; the index contains the new side.
+    run_show(ref)
+    return
+  end
+
+  for _, arg in ipairs(diff_args or {}) do
+    if arg == "--" then break end
+    if not arg:match("^%-") then
+      ref = arg
+      break
     end
-    callback(content)
-  end)
+  end
+
+  local left, right = ref:match("^(.+)%.%.%.(.+)$")
+  if left and right then
+    M._run(_git_argv(root, { "merge-base", left, right }), function(base, exit_code, stderr)
+      if exit_code ~= 0 or vim.trim(base) == "" then
+        vim.notify(_classify_error(stderr), vim.log.levels.WARN)
+        callback(nil)
+      else
+        run_show(vim.trim(base))
+      end
+    end)
+    return
+  end
+
+  local range_left = ref:match("^(.+)%.%.(.+)$")
+  run_show(range_left or ref)
 end
 
 -- file_entry: { path, status?, old_path? }
@@ -491,12 +613,14 @@ function M.scan_dir_diff(local_dir, remote_dir, callback)
     end
 
     local files = {}
-    local pending_compares = 0
+    local compare_tasks = {}
+    local active_compares = 0
+    local next_task = 1
     local compare_done = false
 
     local function finish()
       if failed then return end
-      if compare_done or pending_compares ~= 0 then return end
+      if compare_done or active_compares ~= 0 or next_task <= #compare_tasks then return end
       compare_done = true
       table.sort(files, function(a, b) return a.path < b.path end)
       callback(files)
@@ -512,34 +636,7 @@ function M.scan_dir_diff(local_dir, remote_dir, callback)
           remote_file = remote_file,
         })
       else
-        pending_compares = pending_compares + 1
-        run_no_index_diff(local_file, remote_file, { notify = false }, function(result)
-          if failed then
-            pending_compares = pending_compares - 1
-            finish()
-            return
-          end
-
-          if result.kind == "error" then
-            failed = true
-            vim.notify(result.message, vim.log.levels.WARN)
-            callback(nil)
-            return
-          end
-
-          if result.kind ~= "same" then
-            table.insert(files, {
-              path = rel,
-              status = "M",
-              local_file = local_file,
-              remote_file = remote_file,
-              is_binary = result.kind == "binary",
-            })
-          end
-
-          pending_compares = pending_compares - 1
-          finish()
-        end)
+        table.insert(compare_tasks, { path = rel, local_file = local_file, remote_file = remote_file })
       end
     end
 
@@ -554,6 +651,43 @@ function M.scan_dir_diff(local_dir, remote_dir, callback)
       end
     end
 
+    local function start_next()
+      while not failed and active_compares < MAX_COMPARE_JOBS and next_task <= #compare_tasks do
+        local task = compare_tasks[next_task]
+        next_task = next_task + 1
+        active_compares = active_compares + 1
+
+        run_no_index_diff(task.local_file, task.remote_file, { notify = false }, function(result)
+          active_compares = active_compares - 1
+          if failed then
+            finish()
+            return
+          end
+
+          if result.kind == "error" then
+            failed = true
+            vim.notify(result.message, vim.log.levels.WARN)
+            callback(nil)
+            return
+          end
+
+          if result.kind ~= "same" then
+            table.insert(files, {
+              path = task.path,
+              status = "M",
+              local_file = task.local_file,
+              remote_file = task.remote_file,
+              is_binary = result.kind == "binary",
+            })
+          end
+
+          start_next()
+          finish()
+        end)
+      end
+    end
+
+    start_next()
     finish()
   end
 
