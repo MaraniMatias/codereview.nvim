@@ -805,29 +805,45 @@ function M._open_file_in_tab(jump_to_line)
   if vim.fn.filereadable(full_path) ~= 1 then
     -- for deleted files, offer to view the version from the commit
     if file.status == "D" then
-      local ref = s.diff_args and s.diff_args[1] or "HEAD"
-      local cmd = "git show " .. ref .. ":" .. file.path
+      local ref = "HEAD"
+      for _, arg in ipairs(s.diff_args or {}) do
+        if arg == "--staged" or arg == "--cached" then
+          ref = "HEAD"
+          break
+        elseif arg == "--" then
+          break
+        elseif not arg:match("^%-") then
+          ref = arg:match("^(.+)%.%.%.(.+)$") or arg:match("^(.+)%.%.(.+)$") or arg
+          break
+        end
+      end
       vim.api.nvim_echo(
-        { { "CodeReview: file deleted on disk. Opening from " .. ref .. "…", "WarningMsg" } },
+        { { "CodeReview: file deleted on disk. Loading " .. ref .. "…", "WarningMsg" } },
         false, {}
       )
       vim.cmd("tabnew")
       local buf = vim.api.nvim_get_current_buf()
       vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
       vim.api.nvim_buf_set_name(buf, file.path .. " (" .. ref .. ")")
-      local output = vim.fn.systemlist(cmd)
-      if vim.v.shell_error == 0 then
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, output)
+      vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+
+      git.get_file_old(s.root, file.path, s.diff_args, function(content)
+        if not valid.buf(buf) then return end
+        vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+        if content then
+          local output = vim.split(content, "\n", { plain = true })
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, output)
+        else
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Failed to load file from " .. ref })
+        end
         -- Try to set filetype from extension
         local ext = file.path:match("%.([^%.]+)$")
         if ext then
           local ft = vim.filetype.match({ filename = file.path }) or ext
           pcall(vim.api.nvim_set_option_value, "filetype", ft, { buf = buf })
         end
-      else
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Failed to load file from " .. ref })
-      end
-      vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+        vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+      end)
       return
     end
     vim.api.nvim_echo(
