@@ -1,6 +1,6 @@
 # CodeReview.nvim
 
-Inline code review on any `git diff`, right inside Neovim and export to markdown file.
+Inline code review on any `git diff`, right inside Neovim, with export to a review file.
 
 [![Neovim](https://img.shields.io/badge/Neovim-%3E%3D0.9-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![License](https://img.shields.io/github/license/MaraniMatias/codereview.nvim)](LICENSE)
@@ -9,7 +9,9 @@ Inline code review on any `git diff`, right inside Neovim and export to markdown
 
 ## Features
 
-**Review workflow** — Two-panel layout (explorer + diff) with unified or side-by-side split view, markdown export with prompt flow or direct `:W` save, `git difftool --dir-diff` integration.
+CodeReview.nvim supports **Neovim only** (0.9 or newer); Vim classic is not supported.
+
+**Review workflow** — Two-panel layout (explorer + diff) with unified or side-by-side split view, markdown export with prompt flow or direct `:CodeReviewWrite` save, `git difftool --dir-diff` integration.
 
 **Inline notes** — Smart add/edit on any diff line, visual-selection notes with captured code context, virtual text with visibility toggle, Telescope picker for all notes.
 
@@ -21,7 +23,7 @@ Inline code review on any `git diff`, right inside Neovim and export to markdown
 
 ### Export Formats
 
-Running `:w` or `:W` generates a review file. Two formats are available via `review.export_format`:
+Running `:w`, `:CodeReviewWrite`, or the optional `:W` alias generates a review file. Two formats are available via `review.export_format`:
 
 **`"default"`** — markdown with headings per file, code blocks with syntax highlighting, and enriched header:
 
@@ -68,6 +70,8 @@ src/foo.js|67-72|new|null check user before .name
 handlers/user.js|120|new|consider structured logging
 ```
 
+Fields escape backslashes, pipes, and line breaks as `\\`, `\\|`, `\\n`, and `\\r`.
+
 ## Quick Start
 
 1. Install the plugin (see [Installation](#installation))
@@ -110,12 +114,13 @@ handlers/user.js|120|new|consider structured logging
 | Command | Effect                                        |
 | ------- | --------------------------------------------- |
 | `:w`    | Opens save prompt and writes the markdown review when notes exist |
-| `:W`    | Saves directly to the auto-generated filename when notes exist |
+| `:CodeReviewWrite` | Saves directly to the auto-generated filename when notes exist |
+| `:W`    | Compatibility alias, registered only when unused              |
 | `:q`    | Warns if you have unsaved notes               |
 | `:q!`   | Forces the review tab to close                |
 
 Notes live in memory for the current session only; exporting saves the Markdown review, not the in-editor note state.
-If there are no notes yet, `:w` and `:W` do not create an empty Markdown file.
+If there are no notes yet, `:w`, `:CodeReviewWrite`, and `:W` do not create an empty Markdown file.
 
 ### As git difftool
 
@@ -191,12 +196,7 @@ All keybindings are remappable via `keymaps` in your setup config.
 
 ### Note Editor
 
-| Key     | Action                          |
-| ------- | ------------------------------- |
-| `<C-s>` | Save note (normal & insert)     |
-| `q`     | Discard note without asking     |
-| `<Esc>` | Ask to save or discard          |
-| `<C-d>` | Delete note (with confirmation) |
+The note editor uses `:w` to save. `<Esc>` and the configured quit key ask whether to save, discard, or delete an existing note.
 
 ## Configuration
 
@@ -222,7 +222,6 @@ require("codereview").setup({
   diff_title = " Diff ",
   note_truncate_len = 30,           -- max chars per line in explorer note sub-rows
   note_multiline = false,           -- false = collapse note to one line | true = show each line
-  note_glyph = "⊳",                -- glyph prefix for note rows; use ">" for ASCII fallback
   virtual_text_truncate_len = 60,   -- truncation of virtual text annotations
   virtual_text_max_lines = 3,       -- extra lines shown below the code line (0 = eol only)
   max_diff_lines = 1200,            -- initial visible diff lines before truncation
@@ -234,7 +233,7 @@ require("codereview").setup({
   explorer_status_icons = nil,      -- override status icons, e.g. { M = "M", A = "A", D = "D" }
   note_count_hl = "WarningMsg",     -- highlight group for note count "(3)" in explorer
   note_float_width = 80,            -- max width for the note editor float window
-  show_untracked = false,             -- show untracked files in review mode
+  show_untracked = true,              -- show untracked files in review mode
   treesitter_max_lines = 5000,      -- disable treesitter highlighting above this line count
 
   -- Diff display enhancements
@@ -309,6 +308,7 @@ require("codereview").setup({
 
 - Notes are session-only; closing CodeReview discards in-memory notes unless you export the review
 - Note anchors are based on new-file line numbers
+- The `:W` command is only installed when no other plugin or user configuration already owns it; use `:CodeReviewWrite` for the stable command name
 
 ## Acknowledgements
 

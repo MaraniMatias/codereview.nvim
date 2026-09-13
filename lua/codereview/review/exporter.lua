@@ -71,6 +71,28 @@ local function detect_lang(filepath)
 	return ""
 end
 
+local function safe_heading(text)
+	local result = tostring(text or ""):gsub("[\r\n]", " "):gsub("\\", "\\\\"):gsub("`", "\\`")
+	return result
+end
+
+local function fence_for(code)
+	local max_run = 0
+	for run in (code or ""):gmatch("`+") do
+		max_run = math.max(max_run, #run)
+	end
+	return string.rep("`", math.max(3, max_run + 1))
+end
+
+local function append_note(lines, text)
+	for raw_line in ((text or "") .. "\n"):gmatch("([^\n]*)\n") do
+		-- Quote and escape note text so it cannot create report-level Markdown.
+		local safe_line = raw_line:gsub("\\", "\\\\"):gsub("`", "\\`")
+		table.insert(lines, "> " .. safe_line)
+	end
+	table.insert(lines, "")
+end
+
 -- Group a sorted-by-filepath list of notes into { {filepath, notes}, ... }
 local function group_by_file(all_notes)
 	local groups = {}
@@ -119,7 +141,7 @@ local function build_header(all_notes)
 	local note_count = #all_notes
 	local summary = string.format(
 		"> `%s` — %d %s, %d %s",
-		diff_label,
+		safe_heading(diff_label),
 		file_count,
 		file_count == 1 and "file" or "files",
 		note_count,
@@ -158,7 +180,7 @@ local function generate_human()
 	local groups = group_by_file(all_notes)
 
 	for _, group in ipairs(groups) do
-		table.insert(lines, "## " .. group.filepath)
+		table.insert(lines, "## " .. safe_heading(group.filepath))
 		table.insert(lines, "")
 
 		for i, note in ipairs(group.notes) do
@@ -172,21 +194,19 @@ local function generate_human()
 				code = read_lines(root .. "/" .. note.filepath, note.line_start - ctx, note.line_end + ctx)
 			end
 
-			table.insert(lines, "```" .. lang .. fence_range)
+			local fence = fence_for(code or "")
+			table.insert(lines, fence .. lang .. fence_range)
 			if code and code ~= "" then
 				for code_line in (code .. "\n"):gmatch("([^\n]*)\n") do
 					table.insert(lines, code_line)
 				end
 			end
-			table.insert(lines, "```")
+			table.insert(lines, fence)
 			table.insert(lines, "")
 
 			-- Note text
 			if note.text and note.text ~= "" then
-				for text_line in (note.text .. "\n"):gmatch("([^\n]*)\n") do
-					table.insert(lines, text_line)
-				end
-				table.insert(lines, "")
+				append_note(lines, note.text)
 			end
 
 			-- Separator between notes in the same file (not after the last one)
@@ -201,14 +221,23 @@ local function generate_human()
 end
 
 -- ---------------------------------------------------------------------------
--- Format: "llm" — TSV with header, one line per note, token-efficient
+-- Format: "table" — pipe-separated fields, one line per note.
 -- ---------------------------------------------------------------------------
+
+local function escape_table_field(value)
+	local result = tostring(value or "")
+		:gsub("\\", "\\\\")
+		:gsub("|", "\\|")
+		:gsub("\r", "\\r")
+		:gsub("\n", "\\n")
+	return result
+end
 
 local function generate_llm()
 	local all_notes = store.get_all()
 
 	local lines = {}
-	table.insert(lines, "file|line|text")
+	table.insert(lines, "file|line|side|text")
 
 	if #all_notes == 0 then
 		return table.concat(lines, "\n") .. "\n"
@@ -217,15 +246,16 @@ local function generate_llm()
 	for _, note in ipairs(all_notes) do
 		local range = format_range(note.line_start, note.line_end)
 		local side = note.side or "new"
-		local filepath = note.filepath
-		if side == "old" then
-			filepath = filepath .. " (del)"
-		end
 		local text = ""
 		if note.text and note.text ~= "" then
-			text = vim.trim(note.text:gsub("\n+", " "))
+			text = vim.trim(note.text)
 		end
-		table.insert(lines, filepath .. "|" .. range .. "|" .. text)
+		table.insert(lines, table.concat({
+			escape_table_field(note.filepath),
+			escape_table_field(range),
+			escape_table_field(side),
+			escape_table_field(text),
+		}, "|"))
 	end
 
 	return table.concat(lines, "\n") .. "\n"
