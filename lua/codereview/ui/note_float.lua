@@ -264,9 +264,11 @@ function M.open(filepath, line_start, line_end, code, existing_text, side)
 
   -- q in normal mode: ask save/discard (consistent with layout quit behavior)
   local km = config.options.keymaps
-  vim.keymap.set("n", km.quit, function()
-    M.ask_save_or_discard()
-  end, opts)
+  if km.quit then
+    vim.keymap.set("n", km.quit, function()
+      M.ask_save_or_discard()
+    end, opts)
+  end
 
   -- Autocmd to handle buffer leave — ask save/discard instead of silent close.
   -- NOTE: intentionally NOT once=true so that if the user cancels the prompt

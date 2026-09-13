@@ -192,7 +192,9 @@ function M.open(args)
   -- Safety timeout: auto-unlock if the async callback chain never completes.
   vim.defer_fn(function()
     if opening and open_gen == my_gen then
+      open_gen = open_gen + 1
       opening = false
+      state.reset()
       vim.notify("codereview: open timed out", vim.log.levels.WARN)
     end
   end, ASYNC_TIMEOUT_MS)
@@ -224,14 +226,17 @@ function M.open(args)
       end
 
       local function proceed_with_files(all_files)
-        opening = false
+        if open_gen ~= my_gen then return end
         if #all_files == 0 then
+          opening = false
           state.reset()
           vim.notify("No changed files found (git diff " .. args_display .. ")", vim.log.levels.INFO)
           return
         end
 
         git.get_binary_files(root, s.diff_args, function(binaries)
+          if open_gen ~= my_gen then return end
+          opening = false
           mark_binary_files(all_files, binaries)
           s.files = normalize_files(all_files)
           s.current_file_idx = 1
@@ -270,6 +275,17 @@ function M.difftool(local_path, remote_path, merged_path)
 
   ensure_config()
   opening = true
+  open_gen = open_gen + 1
+  local my_gen = open_gen
+
+  vim.defer_fn(function()
+    if opening and open_gen == my_gen then
+      open_gen = open_gen + 1
+      opening = false
+      state.reset()
+      vim.notify("codereview: difftool open timed out", vim.log.levels.WARN)
+    end
+  end, ASYNC_TIMEOUT_MS)
 
   state.init()
   require("codereview.notes.store").reset_cache()
@@ -280,6 +296,7 @@ function M.difftool(local_path, remote_path, merged_path)
   local remote_is_dir = vim.fn.isdirectory(remote_path) == 1
 
   local function finish(files)
+    if open_gen ~= my_gen then return end
     opening = false
     if files == nil then
       state.reset()
@@ -301,8 +318,12 @@ function M.difftool(local_path, remote_path, merged_path)
     s.local_dir = local_path
     s.remote_dir = remote_path
     git.get_repo_root(remote_path, function(root)
+      if open_gen ~= my_gen then return end
       s.root = root or remote_path
-      git.scan_dir_diff(local_path, remote_path, finish)
+      git.scan_dir_diff(local_path, remote_path, function(files)
+        if open_gen ~= my_gen then return end
+        finish(files)
+      end)
     end)
   else
     s.single_file_difftool = true
@@ -312,7 +333,9 @@ function M.difftool(local_path, remote_path, merged_path)
       or (vim.env.MERGED and vim.env.MERGED ~= "" and vim.env.MERGED or nil)
 
     local function inject_and_open(rel, local_p, remote_p)
+      if open_gen ~= my_gen then return end
       git.get_changed_files(s.root, {}, function(all_files)
+        if open_gen ~= my_gen then return end
         all_files = all_files or {}
         local current_idx = 1
         local found = false
@@ -351,13 +374,15 @@ function M.difftool(local_path, remote_path, merged_path)
             current_idx = 1
           end
         end
-        opening = false
         if #all_files == 0 then
+          opening = false
           state.reset()
           vim.notify("No changed files found", vim.log.levels.INFO)
           return
         end
         git.get_binary_files(s.root, {}, function(binaries)
+          if open_gen ~= my_gen then return end
+          opening = false
           mark_binary_files(all_files, binaries)
           s.files = normalize_files(all_files)
           s.current_file_idx = current_idx
@@ -369,6 +394,7 @@ function M.difftool(local_path, remote_path, merged_path)
     if merged then
       -- Derive repo-relative path from $MERGED for stable, collision-free identity
       git.get_repo_root(vim.fn.fnamemodify(merged, ":h"), function(root)
+        if open_gen ~= my_gen then return end
         local rel
         if root and merged:sub(1, #root) == root then
           rel = merged:sub(#root + 2)   -- strip "root/" prefix
@@ -402,6 +428,7 @@ function M.refresh()
   -- Safety timeout: auto-unlock if the async callback never fires.
   vim.defer_fn(function()
     if refreshing and refresh_gen == my_gen then
+      refresh_gen = refresh_gen + 1
       refreshing = false
       vim.notify("codereview: refresh timed out", vim.log.levels.WARN)
     end
@@ -447,7 +474,9 @@ function M.refresh()
       end
 
       local function proceed_refresh(all_files)
+        if refresh_gen ~= my_gen then return end
         git.get_binary_files(s.root, s.diff_args, function(binaries)
+          if refresh_gen ~= my_gen then return end
           mark_binary_files(all_files, binaries)
           apply_refresh(all_files)
         end)

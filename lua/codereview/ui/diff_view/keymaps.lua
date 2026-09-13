@@ -9,8 +9,11 @@ function M.setup(buf, diff_view)
   local cfg = config.options
   local km = cfg.keymaps
   local opts = { noremap = true, silent = true, nowait = true, buffer = buf }
+  local function map(mode, lhs, callback)
+    if lhs then vim.keymap.set(mode, lhs, callback, opts) end
+  end
 
-  vim.keymap.set("n", km.note, function()
+  local add_note = function()
     local info = diff_view.get_current_line_info()
     if not info then return end
     local s = state.get()
@@ -19,9 +22,10 @@ function M.setup(buf, diff_view)
     local existing = require("codereview.notes.store").get(file.path, info.lnum, info.side)
     local code = diff_view.get_code_context_for_side(info.lnum, info.lnum, info.side)
     require("codereview.ui.note_float").open(file.path, info.lnum, info.lnum, code, existing and existing.text, info.side)
-  end, opts)
+  end
+  map("n", km.note, add_note)
 
-  vim.keymap.set("v", km.note, function()
+  local add_visual_note = function()
     local vstart = vim.fn.line("v")
     local vend = vim.fn.line(".")
     if vstart > vend then vstart, vend = vend, vstart end
@@ -84,41 +88,42 @@ function M.setup(buf, diff_view)
     local code = diff_view.get_code_context_for_side(lnum_start, lnum_end, side)
     require("codereview.ui.note_float").open(file.path, lnum_start, lnum_end, code, nil, side)
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
-  end, opts)
+  end
+  map("v", km.note, add_visual_note)
 
-  vim.keymap.set("n", km.next_note, function()
+  map("n", km.next_note, function()
     diff_view._jump_note(1)
-  end, opts)
-  vim.keymap.set("n", km.prev_note, function()
+  end)
+  map("n", km.prev_note, function()
     diff_view._jump_note(-1)
-  end, opts)
+  end)
 
   local layout = require("codereview.ui.layout")
   local explorer = require("codereview.ui.explorer")
-  vim.keymap.set("n", km.next_file, function()
+  map("n", km.next_file, function()
     local s = state.get()
     if s.current_file_idx < #s.files then
       explorer.preview_action({ type = "file", idx = s.current_file_idx + 1 }, { move_cursor = true })
     end
-  end, opts)
-  vim.keymap.set("n", km.prev_file, function()
+  end)
+  map("n", km.prev_file, function()
     local s = state.get()
     if s.current_file_idx > 1 then
       explorer.preview_action({ type = "file", idx = s.current_file_idx - 1 }, { move_cursor = true })
     end
-  end, opts)
+  end)
 
   if km.save then
-    vim.keymap.set("n", km.save, function()
+    map("n", km.save, function()
       require("codereview.review.exporter").save_with_prompt()
-    end, opts)
+    end)
   end
 
-  vim.keymap.set("n", km.notes_picker, function()
+  map("n", km.notes_picker, function()
     require("codereview.telescope").open_notes_picker()
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.toggle_virtual_text, function()
+  map("n", km.toggle_virtual_text, function()
     local s = state.get()
     local file = s.files[s.current_file_idx]
     if not file then return end
@@ -127,40 +132,40 @@ function M.setup(buf, diff_view)
     else
       virtual.toggle(s.buffers.diff, file.path, diff_state.get())
     end
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.load_more_diff, function()
+  map("n", km.load_more_diff, function()
     diff_view.load_more()
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.go_to_file, function()
+  map("n", km.go_to_file, function()
     diff_view._open_file_in_tab(true)
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.view_file, function()
+  map("n", km.view_file, function()
     diff_view._open_file_in_tab(false)
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.toggle_hunk_fold, function()
+  map("n", km.toggle_hunk_fold, function()
     diff_view._toggle_hunk_fold()
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.cycle_focus, function()
+  map("n", km.cycle_focus, function()
     if config.is_split_mode() and layout.is_diff_old_focused() then
       layout.focus_diff_new()
     else
       layout.focus_explorer()
     end
-  end, opts)
+  end)
 
-  vim.keymap.set("n", km.quit, function()
+  map("n", km.quit, function()
     local note_float = require("codereview.ui.note_float")
     if note_float.is_open() then
       note_float.ask_save_or_discard()
       return
     end
     layout.quit_with_prompt()
-  end, opts)
+  end)
 
   layout.setup_quit_handlers(buf)
   layout.setup_write_handlers(buf)

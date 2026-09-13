@@ -288,10 +288,9 @@ function M.show_help()
     " " .. (km.view_file or "gF") .. "            View full file (new tab)",
     " ──────────────────────────────",
     " Note editor",
-    " <C-s> / :w    Save note",
-    " <C-d>         Delete note",
-    " q             Discard",
-    " <Esc>         Save note",
+    " :w            Save note",
+    " q             Ask to save or discard",
+    " <Esc>         Ask to save or discard",
     " ──────────────────────────────",
     " Press any key to close",
   }

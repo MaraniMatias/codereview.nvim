@@ -7,6 +7,9 @@ local actions = require("codereview.ui.explorer.actions")
 function M.setup(buf)
   local km = config.options.keymaps
   local opts = { noremap = true, silent = true, nowait = true, buffer = buf }
+  local function map(lhs, callback)
+    if lhs then vim.keymap.set("n", lhs, callback, opts) end
+  end
 
   -- Debounced preview: avoids triggering a diff render on every keypress
   -- when the user holds j/k or uses motions like 5j, gg, G, /search, etc.
@@ -34,22 +37,18 @@ function M.setup(buf)
   vim.keymap.set("n", "l", actions.open_current, opts)
   -- NOTE: "h" intentionally NOT bound to toggle_notes — it conflicts with
   -- standard vim left-movement muscle memory. Use km.toggle_notes (default: za).
-  vim.keymap.set("n", km.toggle_notes, actions.toggle_notes, opts)
-  vim.keymap.set("n", km.next_file, actions.next_file, opts)
-  vim.keymap.set("n", km.prev_file, actions.prev_file, opts)
-  vim.keymap.set("n", km.refresh, actions.refresh, opts)
-  vim.keymap.set("n", km.quit, actions.quit, opts)
-  vim.keymap.set("n", km.cycle_focus, actions.cycle_focus, opts)
-  if km.toggle_layout then
-    vim.keymap.set("n", km.toggle_layout, actions.toggle_layout, opts)
-  end
-  if km.save then
-    vim.keymap.set("n", km.save, actions.save, opts)
-  end
+  map(km.toggle_notes, actions.toggle_notes)
+  map(km.next_file, actions.next_file)
+  map(km.prev_file, actions.prev_file)
+  map(km.refresh, actions.refresh)
+  map(km.quit, actions.quit)
+  map(km.cycle_focus, actions.cycle_focus)
+  map(km.toggle_layout, actions.toggle_layout)
+  map(km.save, actions.save)
   vim.keymap.set("n", "d", function() actions.delete_note(false) end, opts)
   vim.keymap.set("n", "D", function() actions.delete_note(true) end, opts)
   vim.keymap.set("n", "?", actions.show_help, opts)
-  vim.keymap.set("n", km.note, actions.edit_current_note, opts)
+  map(km.note, actions.edit_current_note)
 
   layout.setup_quit_handlers(buf)
   layout.setup_write_handlers(buf)
